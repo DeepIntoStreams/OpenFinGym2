@@ -1,0 +1,25 @@
+[project]
+name = "open-fin-gym"
+version = "0.1.0"
+description = "Financial agent benchmark and training task generation, and training utilities"
+readme = "README.md"
+authors = [
+    # TODO: Add authors
+    { name = "jlanghamlopez", email = "jlanghamlopez@turing.ac.uk" }
+]
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+pipeline = "open_fin_gym:run_pipeline"
+
+[build-system]
+requires = ["uv_build>=0.8.14,<0.9.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.6.0",
+    "pytest>=9.0.3",
+    "ruff>=0.15.15",
+]
