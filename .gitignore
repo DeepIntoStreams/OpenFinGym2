@@ -120,3 +120,6 @@ pyrightconfig.json
 *.pkl
 *.pickle
 *.log
+
+# Default Hydra output path
+./outputs
