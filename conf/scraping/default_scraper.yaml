@@ -1,0 +1,49 @@
+root_dir: ./data
+scopes:
+  - id: financial_return_forecasting
+    name: "Financial Return Forecasting"
+    description: >
+      Forecasting of financial returns, prices, or volatility from financial time-series
+      data using machine learning or deep learning models, including point prediction,
+      distributional forecasting, and directional prediction across asset classes such as
+      crypto, equities, FX, fixed income, commodities, ETFs, and indices.
+    enabled: true
+    categories: [ q-fin.CP, q-fin.ST, q-fin.TR, q-fin.PM, cs.LG, stat.ML, cs.AI ]
+    queries:
+      - '((stock OR equity OR cryptocurrency OR forex OR FX OR bond OR commodity OR ETF OR futures OR "stock index" OR "equity index" OR "interest rate*" OR "exchange rate*" OR "asset return*" OR "asset price*" OR "financial market*")
+        AND (return* OR price* OR volatility OR "realized volatility")
+        AND (forecast* OR predict* OR nowcast* OR "time series" OR "sequence model")
+        AND (LSTM OR Transformer OR "neural network" OR "deep learning" OR "state space" OR diffusion))'
+      - '((stock OR equity OR cryptocurrency OR forex OR FX OR bond OR commodity OR ETF OR futures OR "stock index" OR "equity index" OR "interest rate*" OR "exchange rate*" OR "asset return*" OR "asset price*" OR "financial market*")
+        AND (return* OR price* OR volatility)
+        AND (predict* OR forecast*)
+        AND (backtest OR "out-of-sample" OR "walk-forward" OR Sharpe OR Sortino OR drawdown OR PnL)
+        AND (machine learning OR deep learning OR statistical learning))'
+      - '("limit order book" OR "order flow" OR "high-frequency" OR "tick data")
+        AND (predict* OR forecast*)
+        AND (return* OR price* OR movement)
+        AND (deep learning OR Transformer OR CNN OR LSTM)'
+arxiv:
+  page_size: 100
+  sort_by: SubmittedDate
+  request_interval_sec: 3.0
+  num_retries: 3
+crossref:
+  enabled: false
+  base_url: https://api.crossref.org
+  max_results: 10
+  timeout_sec: 25.0
+  request_delay_secs: 5
+  min_title_similarity: 0.82
+  mailto: null
+semantic_scholar:
+  enabled: true
+  batch_size: 500
+  timeout_sec: 30
+  api_url: https://api.semanticscholar.org
+  retry: true
+  request_delay_secs: 1
+max_papers_per_scope: 5
+max_accepts_per_scope: 2
+since: 2026-01-01
+until: 2026-01-30

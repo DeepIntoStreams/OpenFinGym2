@@ -122,4 +122,4 @@ pyrightconfig.json
 *.log
 
 # Default Hydra output path
-./outputs
+/outputs

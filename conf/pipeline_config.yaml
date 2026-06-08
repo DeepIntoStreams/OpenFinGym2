@@ -1,2 +1,2 @@
-# Placeholder
-foo: bar
+defaults:
+  - scraping: default_scraper
