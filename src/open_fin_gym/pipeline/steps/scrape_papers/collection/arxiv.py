@@ -74,6 +74,7 @@ class ArxivClient:
                 journal_ref = result.journal_ref
                 papers[paper_id] = PaperRecord(
                     paper_id=_format_arxiv_id(result.entry_id),
+                    scope_id=scope.id,
                     arxiv_url=result.entry_id,
                     title=result.title,
                     abstract=result.summary,

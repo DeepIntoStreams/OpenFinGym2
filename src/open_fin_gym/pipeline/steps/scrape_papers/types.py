@@ -66,6 +66,7 @@ class ScrapingConfig:
 
 class PaperRecord(BaseModel):
     paper_id: str
+    scope_id: str
     title: str
     abstract: str
     source: SourceName = SourceName.ARXIV
@@ -77,7 +78,6 @@ class PaperRecord(BaseModel):
     pdf_url: str | None = None
     primary_category: str | None = None
     doi: str | None = None
-    scope_ids: list[str] = Field(default_factory=list)
     citation_count: int | None = None
     semantic_scholar_id: str | None = None
     influential_citation_count: int | None = None
