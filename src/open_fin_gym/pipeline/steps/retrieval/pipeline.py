@@ -13,6 +13,12 @@ from open_fin_gym.pipeline.steps.scrape_papers.types import PaperStatus
 
 class PaperRetrieval:
     def __init__(self, db: Engine) -> None:
+        """
+        Paper retrieval and chunking stage
+
+        Args:
+            db: SqlAlchemy db engine
+        """
         self.db = db
         self.headers_to_split = [
             ("#", "Header 1"),
@@ -24,13 +30,19 @@ class PaperRetrieval:
         )
 
     def download_and_chunk_papers(self, output_path: Path) -> None:
+        """
+        Download PDF for newly scraped papers, chunk them and persist chunks in DB
 
+        Args:
+            output_path: Hydra run output path
+        """
         with Session(self.db) as session:
             stmt = select(Paper).where(Paper.status == PaperStatus.SCRAPED)
             papers = session.execute(stmt).scalars().all()
 
         for paper in papers:
             if not paper.pdf_url:
+                # If the paper has no pdf link then reject here
                 status = PaperStatus.REJECTED
                 chunks = []
             else:
@@ -60,4 +72,13 @@ class PaperRetrieval:
 
 
 def get_header(sections: dict[str, str]) -> str:
+    """
+    Get chunk section header from metadata
+
+    Args:
+        sections: Dictionary of section IDs and their titles
+
+    Returns:
+        The actual heading name of the chunk
+    """
     return sorted([(k, v) for k, v in sections.items()], key=lambda x: x[0])[-1][1]
