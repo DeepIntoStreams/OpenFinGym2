@@ -47,3 +47,12 @@ class Paper(Base):
     __table_args__ = (
         UniqueConstraint("paper_id", "scope_id", name="paper_constraint"),
     )
+
+
+class Chunk(Base):
+    __tablename__ = "chunks"
+    chunk_id = Column(Integer, primary_key=True, autoincrement=True)
+    paper_id = Column(String, index=True)
+    chunk_index = Column(Integer, index=True)
+    header = Column(String)
+    text = Column(String)

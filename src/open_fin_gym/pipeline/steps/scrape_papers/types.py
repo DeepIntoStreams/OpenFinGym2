@@ -30,6 +30,7 @@ class JudgeDecision(BaseModel):
 
 class PaperStatus(str, Enum):
     SCRAPED = "scraped"
+    EXTRACTED = "extracted"
     ACCEPTED = "accepted"
     REJECTED = "rejected"
 
