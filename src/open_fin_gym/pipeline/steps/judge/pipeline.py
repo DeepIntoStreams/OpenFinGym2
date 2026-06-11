@@ -21,7 +21,7 @@ from .prompts import (
     build_sift_judge_prompt,
 )
 from .types import JudgeConfig
-from .utils import rank_papers_for_llm
+from .utils import filter_chunks, rank_papers_for_llm
 
 logger = logging.getLogger(__name__)
 
@@ -118,8 +118,9 @@ class Judge:
         for paper in accepted:
             with Session(self.db) as session:
                 stmt = select(Chunk).where(Chunk.paper_id == paper.paper_id)
-                chunks = session.execute(stmt).scalars().all()
+                chunks: list[Chunk] = session.execute(stmt).scalars().all()
 
+            chunks = filter_chunks(chunks)
             excerpt = "/n/n".join([x.text for x in chunks])
             prompt = build_sift_judge_prompt(scope, paper, excerpt=excerpt)
             llm = self.llm.with_structured_output(SiftJudgement)
