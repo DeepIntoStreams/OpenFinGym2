@@ -81,4 +81,6 @@ def get_header(sections: dict[str, str]) -> str:
     Returns:
         The actual heading name of the chunk
     """
-    return sorted([(k, v) for k, v in sections.items()], key=lambda x: x[0])[-1][1]
+    title = sorted([(k, v) for k, v in sections.items()], key=lambda x: x[0])[-1][1]
+    title = title.replace("*", "").strip().lower()
+    return title

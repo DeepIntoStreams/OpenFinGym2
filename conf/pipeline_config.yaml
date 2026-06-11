@@ -1,3 +1,4 @@
 defaults:
   - scraping: default_scraper
+  - judge: default_judge
 db_engine: sqlite:///./pipeline.db
