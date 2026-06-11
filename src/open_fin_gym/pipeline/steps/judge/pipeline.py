@@ -14,10 +14,11 @@ from open_fin_gym.pipeline.steps.scrape_papers.types import (
 )
 
 from .prompts import (
+    Evidence,
+    PrefilterDecision,
+    SiftJudgement,
     build_prefilter_prompt,
     build_sift_judge_prompt,
-    prefilter_output_schema,
-    sift_output_schema,
 )
 from .types import JudgeConfig
 from .utils import rank_papers_for_llm
@@ -85,12 +86,20 @@ class Judge:
                 should_judge = True
                 prefilter_score = 0.0
 
-            paper.prefilter_passed = should_judge
-            paper.prefilter_score = prefilter_score
-
-            if not paper.prefilter_passed:
-                self.set_paper_status(paper.paper_id, PaperStatus.REJECTED)
+            if not should_judge:
+                self.set_paper_status(
+                    paper.paper_id,
+                    PaperStatus.REJECTED,
+                    prefilter_passed=False,
+                    prefilter_score=prefilter_score,
+                )
             else:
+                self.set_paper_status(
+                    paper.paper_id,
+                    PaperStatus.EXTRACTED,
+                    prefilter_passed=True,
+                    prefilter_score=prefilter_score,
+                )
                 candidates.append(paper)
 
         sorted_candidates = rank_papers_for_llm(
@@ -104,7 +113,7 @@ class Judge:
         rejected = sorted_candidates[-self.cfg.sift_budget :]
 
         for paper in rejected:
-            paper.status = PaperStatus.REJECTED
+            self.set_paper_status(paper.paper_id, PaperStatus.REJECTED)
 
         for paper in accepted:
             with Session(self.db) as session:
@@ -113,27 +122,29 @@ class Judge:
 
             excerpt = "/n/n".join([x.text for x in chunks])
             prompt = build_sift_judge_prompt(scope, paper, excerpt=excerpt)
-            llm = self.llm.with_structured_output(sift_output_schema())
+            llm = self.llm.with_structured_output(SiftJudgement)
 
             try:
-                response = llm.invoke(prompt)
+                response: SiftJudgement = llm.invoke(prompt)
             except Exception as e:
-                response = {
-                    "label": "rejected",
-                    "score_0_10": 0.0,
-                    "confidence_0_1": 0.0,
-                    "reasons": f"LLM unavailable for this paper {e}",
-                    "evidence": {"experiments": "", "datasets": "", "metrics": ""},
-                }
+                response: SiftJudgement = SiftJudgement(
+                    label=JudgeLabel.REJECTED,
+                    score=0,
+                    confidence=0.0,
+                    reasons=f"LLM error for this paper {e}",
+                    evidence=Evidence(experiments="", datasets="", metrics=""),
+                )
 
             accepted = (
-                response["label"] == JudgeLabel.ACCEPTED
-                and response["score_0_10"] >= self.cfg.threshold_default
+                response.label == JudgeLabel.ACCEPTED
+                and response.score >= self.cfg.threshold_default
             )
             status = PaperStatus.ACCEPTED if accepted else PaperStatus.REJECTED
             self.set_paper_status(paper.paper_id, status)
 
-    def llm_prefilter(self, scope: Scope, paper: Paper) -> tuple[bool, float, dict]:
+    def llm_prefilter(
+        self, scope: Scope, paper: Paper
+    ) -> tuple[bool, float, PrefilterDecision]:
         """
         Pre-filter papers using an LLM judge
 
@@ -144,30 +155,28 @@ class Judge:
         Returns:
             Judgement outcome
         """
-        llm = self.llm.with_structured_output(prefilter_output_schema())
+        llm = self.llm.with_structured_output(PrefilterDecision)
         prompt = build_prefilter_prompt(scope, paper)
 
         try:
-            result = llm.invoke(prompt)
+            result: PrefilterDecision = llm.invoke(prompt)
         except Exception as e:
-            result = (
-                {
-                    "label": "rejected",
-                    "relevance_score_0_10": 0.0,
-                    "confidence_0_1": 0.0,
-                    "reasons": f"prefilter fallback:  {e}",
-                },
+            result: PrefilterDecision = PrefilterDecision(
+                label=JudgeLabel.REJECTED,
+                relevance_score=0.0,
+                confidence=0.0,
+                reasons=f"prefilter llm error: {e}",
             )
 
-        score = float(result.get("relevance_score_0_10", 0.0))
-        conf = float(result.get("confidence_0_1", 0.0))
-        keep = str(result.get("label", "rejected")).strip().lower() == "accepted"
+        score = result.relevance_score
+        conf = result.confidence
+        keep = result.label == JudgeLabel.ACCEPTED
         min_score = self.cfg.prefilter_llm_score_min
         min_conf = self.cfg.prefilter_llm_confidence_min
         passed = keep and score >= min_score and conf >= min_conf
         return passed, score, result
 
-    def set_paper_status(self, paper_id: str, status: PaperStatus) -> None:
+    def set_paper_status(self, paper_id: str, status: PaperStatus, **kwargs) -> None:
         """
         Update paper status in the DB
 
@@ -178,7 +187,7 @@ class Judge:
         with Session(self.db) as session:
             stmt = (
                 update(Paper)
-                .values({"status": status})
+                .values({"status": status, **kwargs})
                 .where(Paper.paper_id == paper_id)
             )
             session.execute(stmt)

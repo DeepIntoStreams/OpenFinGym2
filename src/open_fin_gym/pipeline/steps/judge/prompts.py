@@ -1,5 +1,7 @@
+from pydantic import BaseModel, Field
+
 from open_fin_gym.pipeline.db.tables import Paper
-from open_fin_gym.pipeline.steps.scrape_papers.types import Scope
+from open_fin_gym.pipeline.steps.scrape_papers.types import JudgeLabel, Scope
 
 
 def _scope_context(scope: Scope) -> str:
@@ -41,22 +43,6 @@ Output JSON only with keys:
 - relevance_score_0_10: number in [0, 10]
 - confidence_0_1: number in [0, 1]
 """.strip()
-
-
-def prefilter_output_schema() -> dict:
-    return {
-        "title": "PrefilterDecision",
-        "description": "Initial paper screening decision with relevance score and confidence assessment from abstract.",
-        "type": "object",
-        "properties": {
-            "reasons": {"type": "string"},
-            "label": {"type": "string", "enum": ["accepted", "rejected"]},
-            "relevance_score_0_10": {"type": "number", "minimum": 0, "maximum": 10},
-            "confidence_0_1": {"type": "number", "minimum": 0, "maximum": 1},
-        },
-        "required": ["reasons", "label", "relevance_score_0_10", "confidence_0_1"],
-        "additionalProperties": False,
-    }
 
 
 def build_sift_judge_prompt(
@@ -118,27 +104,22 @@ Output JSON only with keys:
 """.strip()
 
 
-def sift_output_schema() -> dict:
-    return {
-        "title": "SiftJudgement",
-        "description": "In-depth paper evaluation for task construction, extracting structured evidence on experiments, datasets, and downloadability.",
-        "type": "object",
-        "properties": {
-            "evidence": {
-                "type": "object",
-                "properties": {
-                    "experiments": {"type": "string"},
-                    "datasets": {"type": "string"},
-                    "metrics": {"type": "string"},
-                },
-                "required": ["experiments", "datasets", "metrics"],
-                "additionalProperties": False,
-            },
-            "reasons": {"type": "string"},
-            "label": {"type": "string", "enum": ["accepted", "rejected"]},
-            "score_0_10": {"type": "number", "minimum": 0, "maximum": 10},
-            "confidence_0_1": {"type": "number", "minimum": 0, "maximum": 1},
-        },
-        "required": ["evidence", "reasons", "label", "score_0_10", "confidence_0_1"],
-        "additionalProperties": False,
-    }
+class PrefilterDecision(BaseModel):
+    reasons: str
+    label: JudgeLabel
+    relevance_score: float = Field(0.0, ge=0.0, le=10.0)
+    confidence: float = Field(0.0, ge=0.0, le=1.0)
+
+
+class Evidence(BaseModel):
+    experiments: str
+    datasets: str
+    metrics: str
+
+
+class SiftJudgement(BaseModel):
+    evidence: Evidence
+    reasons: str
+    label: JudgeLabel
+    score: float = Field(0.0, ge=0.0, le=10.0)
+    confidence: float = Field(0.0, ge=0.0, le=1.0)
