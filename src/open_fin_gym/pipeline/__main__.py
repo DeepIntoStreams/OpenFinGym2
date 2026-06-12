@@ -10,6 +10,7 @@ from .db.tables import Base
 from .steps.judge.pipeline import Judge
 from .steps.retrieval.pipeline import PaperRetrieval
 from .steps.scrape_papers.pipeline import PaperScrapingPipeline
+from .steps.task_extraction.pipeline import TaskExtractor
 
 
 @hydra.main(
@@ -43,6 +44,9 @@ def run_pipeline(cfg: PipelineConfig) -> None:
 
     judge_pipeline = Judge(db_engine, cfg.judge)
     judge_pipeline.run(output_dir, cfg.scraping.scopes)
+
+    task_extractor = TaskExtractor(db_engine, cfg.task_extractor)
+    task_extractor.run(cfg.scraping.scopes)
 
 
 if __name__ == "__main__":

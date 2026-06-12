@@ -1,15 +1,24 @@
+from enum import Enum as PyEnum
+from typing import List
+
 from sqlalchemy import (
     Boolean,
     Column,
     DateTime,
     Enum,
     Float,
+    ForeignKey,
     Integer,
     String,
     UniqueConstraint,
 )
 from sqlalchemy.dialects.sqlite.json import JSON
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import (
+    Mapped,
+    declarative_base,
+    mapped_column,
+    relationship,
+)
 
 from open_fin_gym.pipeline.steps.scrape_papers.types import (
     PaperStatus,
@@ -56,3 +65,48 @@ class Chunk(Base):
     chunk_index = Column(Integer, index=True)
     header = Column(String)
     text = Column(String)
+
+
+class TaskType(str, PyEnum):
+    forecasting = "forecasting"
+    generative = "generative"
+
+
+class TaskCandidate(Base):
+    __tablename__ = "task_candidates"
+    task_id = Column(Integer, primary_key=True, autoincrement=True)
+    scope_id = Column(String, index=True)
+    paper_id = Column(String, index=True)
+    task_name = Column(String)
+    ml_task_summary = Column(String)
+    experiments = Column(String)
+    links = Column(JSON)
+    task_family = Column(Enum(TaskType))
+    datasets: Mapped[List["DatasetCandidate"]] = relationship(
+        "DatasetCandidate", backref="task_candidate"
+    )
+    metrics: Mapped[List["MetricCandidate"]] = relationship(
+        "MetricCandidate", backref="task_candidate"
+    )
+
+
+class DatasetType(str, PyEnum):
+    real = "real"
+    synthetic = "synthetic"
+
+
+class DatasetCandidate(Base):
+    __tablename__ = "dataset_candidates"
+    dataset_id = Column(Integer, primary_key=True, autoincrement=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("task_candidates.task_id"))
+    name = Column(String)
+    description = Column(String)
+    dataset_type = Column(Enum(DatasetType))
+
+
+class MetricCandidate(Base):
+    __tablename__ = "metric_candidates"
+    metric_id = Column(Integer, primary_key=True, autoincrement=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("task_candidates.task_id"))
+    name = Column(String)
+    description = Column(String)

@@ -3,10 +3,11 @@ from pathlib import Path
 
 from hydra.utils import instantiate
 from langchain_core.language_models import BaseChatModel
-from sqlalchemy import Engine, select, update
+from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from open_fin_gym.pipeline.db.tables import Chunk, Paper
+from open_fin_gym.pipeline.db.utils import set_paper_status
 from open_fin_gym.pipeline.steps.scrape_papers.types import (
     JudgeLabel,
     PaperStatus,
@@ -185,11 +186,4 @@ class Judge:
             paper_id: Id of the paper
             status: Status value
         """
-        with Session(self.db) as session:
-            stmt = (
-                update(Paper)
-                .values({"status": status, **kwargs})
-                .where(Paper.paper_id == paper_id)
-            )
-            session.execute(stmt)
-            session.commit()
+        set_paper_status(self.db, paper_id, status)

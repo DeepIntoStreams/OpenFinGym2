@@ -1,18 +1,11 @@
 from pydantic import BaseModel, Field
 
 from open_fin_gym.pipeline.db.tables import Paper
-from open_fin_gym.pipeline.steps.scrape_papers.types import JudgeLabel, Scope
-
-
-def _scope_context(scope: Scope) -> str:
-    query_block = "\n".join(f"- {q}" for q in scope.queries[:10]) or "- (none)"
-    categories = ", ".join(scope.categories) or "(none)"
-    return (
-        f"Scope name: {scope.name}\n"
-        f"Scope description: {scope.description}\n"
-        f"Scope categories: {categories}\n"
-        f"Scope queries:\n{query_block}"
-    )
+from open_fin_gym.pipeline.steps.scrape_papers.types import (
+    JudgeLabel,
+    Scope,
+    scope_context,
+)
 
 
 def build_prefilter_prompt(scope: Scope, paper: Paper) -> str:
@@ -20,7 +13,7 @@ def build_prefilter_prompt(scope: Scope, paper: Paper) -> str:
 You are a strict prefilter for financial-ML paper screening.
 Use only title + abstract evidence. Do not use assumptions beyond the given text.
 
-{_scope_context(scope)}
+{scope_context(scope)}
 
 Paper title: {paper.title}
 Paper abstract: {paper.abstract}
@@ -53,7 +46,7 @@ def build_sift_judge_prompt(
     return f"""
 You are judging whether the paper is suitable for research task construction, based on the provided fulltext excerpt and scope context. Do not invent details.
 
-{_scope_context(scope)}
+{scope_context(scope)}
 
 Paper title: {paper.title}
 Paper fulltext excerpt:
