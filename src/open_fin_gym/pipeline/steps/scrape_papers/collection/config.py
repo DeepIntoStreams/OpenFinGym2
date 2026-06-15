@@ -4,7 +4,7 @@ from dataclasses import dataclass
 @dataclass
 class ArxivConfig:
     page_size: int = 100
-    sort_by: str = "submittedDate"
+    sort_by: str = "SubmittedDate"
     request_interval_sec: float = 3.0
     num_retries: int = 3
 

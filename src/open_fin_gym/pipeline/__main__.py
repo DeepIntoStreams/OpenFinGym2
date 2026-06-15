@@ -24,11 +24,9 @@ def run_pipeline(cfg: PipelineConfig) -> None:
 
     output_dir = Path(hydra.core.hydra_config.HydraConfig.get().runtime.output_dir)
 
-    scraping_output_dir = output_dir / "scraping"
-    scraping_output_dir.mkdir(parents=True, exist_ok=True)
     scraping_pipeline = PaperScrapingPipeline(db_engine, cfg.scraping)
     scraping_pipeline.run(
-        scraping_output_dir,
+        output_dir,
         cfg.scraping.scopes,
         datetime.strptime(cfg.scraping.since, "%Y-%m-%d"),
         datetime.strptime(cfg.scraping.until, "%Y-%m-%d"),

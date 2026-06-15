@@ -67,30 +67,27 @@ class PaperCollector:
 
         return papers
 
-    def dump_results(
+    def dump_papers(
         self,
         output_path: Path,
-        papers: dict[str, tuple[Scope, dict[str, PaperRecord]]],
-        output_file_name: str = "scope_paper.json",
+        scope: Scope,
+        papers: dict[str, PaperRecord],
     ) -> None:
         """
-        Dump scraped data to a json file
+        Dump scraped data to a JSON file
 
         Args:
             output_path: Output folder
+            scope: Scope associated with the scraped papers
             papers: Nested dictionary of scopes and papers scraped from each
-            output_file_name: Name of json file to write
         """
-        output_file = output_path / output_file_name
+        output_file = output_path / f"{scope.id}.json"
 
         logger.info(f"Logging scraped papers to {output_file}")
 
         with open(output_file, "w") as f:
             json.dump(
-                {
-                    k: [x.model_dump(mode="json") for x in v[1].values()]
-                    for k, v in papers.items()
-                },
+                [x.model_dump(mode="json") for x in papers.values()],
                 f,
                 indent=4,
             )
