@@ -77,6 +77,7 @@ class TaskCandidate(Base):
     task_id = Column(Integer, primary_key=True, autoincrement=True)
     scope_id = Column(String, index=True)
     paper_id = Column(String, index=True)
+    new = Column(Boolean, default=True)
     task_name = Column(String)
     ml_task_summary = Column(String)
     experiments = Column(String)
