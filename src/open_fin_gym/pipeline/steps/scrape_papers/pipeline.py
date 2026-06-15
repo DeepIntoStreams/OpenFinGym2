@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from open_fin_gym.pipeline.db.tables import Paper
 
-from .collection.collector import PaperCollector
+from .collection.collector import PaperCollector, logger
 from .types import PaperRecord, Scope, ScrapingConfig
 
 
@@ -45,25 +45,33 @@ class PaperScrapingPipeline:
             until_date: Paper search to datetime
             per_scope_limit: Max number of papers to return per scope
         """
-        scope_papers: dict[str, tuple[Scope, dict[str, PaperRecord]]] = dict()
+        output_path = output_path / "scraped_papers/"
+        output_path.mkdir(exist_ok=True)
 
         for scope in scopes:
+            logger.info(
+                f"Scraping papers for scope {scope.id} from {since_date} to {until_date}"
+            )
             papers = self.collector.collect_scope(
                 scope,
                 since_date,
                 until_date,
                 per_scope_limit,
             )
-            scope_papers[scope.name] = (scope, papers)
+            self.insert_new_papers(papers)
+            self.collector.dump_papers(output_path, scope, papers)
 
-            with Session(self.db) as session:
-                inserts = [x.model_dump() for x in papers.values()]
-                stmt = insert(Paper).values(inserts)
-                # Skip papers that already have entries in the DB for this scope
-                stmt = stmt.on_conflict_do_nothing(
-                    index_elements=["paper_id", "scope_id"]
-                )
-                session.execute(stmt)
-                session.commit()
+    def insert_new_papers(self, papers: dict[str, PaperRecord]) -> None:
+        """
+        Insert papers into db, skipping those already present
 
-        self.collector.dump_results(output_path, scope_papers)
+        Args:
+            papers: Dictionary of scraped paper data
+        """
+        with Session(self.db) as session:
+            inserts = [x.model_dump() for x in papers.values()]
+            stmt = insert(Paper).values(inserts)
+            # Skip papers that already have entries in the DB for this scope
+            stmt = stmt.on_conflict_do_nothing(index_elements=["paper_id", "scope_id"])
+            session.execute(stmt)
+            session.commit()
