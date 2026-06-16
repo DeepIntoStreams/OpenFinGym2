@@ -7,9 +7,8 @@ from langchain_core.language_models import BaseChatModel
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
-from open_fin_gym.pipeline.db.tables import Chunk, Paper
-from open_fin_gym.pipeline.db.utils import set_paper_status
 from open_fin_gym.pipeline.db.tables import Chunk, Paper, RejectionReason
+from open_fin_gym.pipeline.db.utils import set_paper_status
 from open_fin_gym.pipeline.steps.scrape_papers.types import (
     JudgeLabel,
     PaperStatus,
@@ -238,4 +237,4 @@ class Judge:
             paper_id: Id of the paper
             status: Status value
         """
-        set_paper_status(self.db, paper_id, status)
+        set_paper_status(self.db, paper_id, status, **kwargs)

@@ -1,3 +1,6 @@
+import json
+import logging
+from pathlib import Path
 from typing import Optional
 
 from hydra.utils import instantiate
@@ -19,18 +22,44 @@ from open_fin_gym.pipeline.steps.scrape_papers.types import PaperStatus, Scope
 from .prompts import PaperTaskSummary, build_paper_summary_prompt
 from .types import TaskExtractionConfig
 
+logger = logging.getLogger(__name__)
+
 
 class TaskExtractor:
     def __init__(self, db: Engine, cfg: TaskExtractionConfig) -> None:
+        """
+        Extract candidate task metadata from accepted paper
+
+        Args:
+            db: SQLAlchemy db engine
+            cfg: Task extraction configuration
+        """
         self.db: Engine = db
         self.llm: BaseChatModel = instantiate(cfg.llm)
         assert isinstance(self.llm, BaseChatModel)
 
-    def run(self, scopes: list[Scope]) -> None:
-        for scope in scopes:
-            self.extract_scope(scope)
+    def run(self, output_path: Path, scopes: list[Scope]) -> None:
+        """
+        Run task extraction across provided scopes
 
-    def extract_scope(self, scope: Scope) -> None:
+        Args:
+            output_path: Hydra run output path
+            scopes: List of paper scopes
+        """
+        output_path = output_path / "task_extraction/"
+        output_path.mkdir(exist_ok=True)
+
+        for scope in scopes:
+            self.extract_scope(scope, output_path)
+
+    def extract_scope(self, scope: Scope, output_path: Path) -> None:
+        """
+        Extract task from accepted papers for a given scope
+
+        Args:
+            scope: Task scope
+            output_path: Hydra run output path
+        """
 
         with Session(self.db) as session:
             stmt = select(Paper).where(
@@ -38,6 +67,9 @@ class TaskExtractor:
             )
             papers: list[Paper] = session.execute(stmt).scalars().all()
 
+        logger.info(f"Extracting tasks from {len(papers)} papers for scope {scope.id}")
+
+        task_summaries = []
         task_candidates = []
         dataset_candidates = []
         metric_candidates = []
@@ -54,7 +86,11 @@ class TaskExtractor:
 
             try:
                 task_summary: Optional[PaperTaskSummary] = llm.invoke(prompt)
-            except Exception:
+                task_summaries.append(task_summary)
+            except Exception as e:
+                logger.error(
+                    f"Task extraction failed from paper {paper.paper_id} from scope {scope.id} due to {e}"
+                )
                 task_summary: Optional[PaperTaskSummary] = None
 
             set_paper_status(self.db, paper.paper_id, PaperStatus.COMPLETE)
@@ -69,6 +105,7 @@ class TaskExtractor:
                     links=task_summary.links,
                     task_family=task_summary.task_family,
                 )
+                task_candidates.append(task_candidate)
                 dataset_candidates.extend(
                     [
                         DatasetCandidate(
@@ -96,3 +133,10 @@ class TaskExtractor:
             session.add_all(dataset_candidates)
             session.add_all(metric_candidates)
             session.commit()
+
+        with open(output_path / f"{scope.id}.json", "w") as f:
+            json.dump(
+                [x.model_dump(mode="json") for x in task_summaries],
+                f,
+                indent=4,
+            )

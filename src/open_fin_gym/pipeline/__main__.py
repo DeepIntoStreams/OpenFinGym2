@@ -46,7 +46,7 @@ def run_pipeline(cfg: PipelineConfig) -> None:
     judge_pipeline.run(output_dir, cfg.scraping.scopes)
 
     task_extractor = TaskExtractor(db_engine, cfg.task_extractor)
-    task_extractor.run(cfg.scraping.scopes)
+    task_extractor.run(output_dir, cfg.scraping.scopes)
 
 
 if __name__ == "__main__":

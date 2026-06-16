@@ -1,6 +1,4 @@
 from enum import Enum as EnumType
-
-from enum import Enum as PyEnum
 from typing import List
 
 from sqlalchemy import (
@@ -78,7 +76,7 @@ class Chunk(Base):
     text = Column(String)
 
 
-class TaskType(str, PyEnum):
+class TaskType(str, EnumType):
     forecasting = "forecasting"
     generative = "generative"
 
@@ -102,7 +100,7 @@ class TaskCandidate(Base):
     )
 
 
-class DatasetType(str, PyEnum):
+class DatasetType(str, EnumType):
     real = "real"
     synthetic = "synthetic"
 
