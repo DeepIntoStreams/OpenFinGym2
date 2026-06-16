@@ -23,6 +23,10 @@ Base = declarative_base()
 
 class RejectionReason(str, EnumType):
     NoPaperURL = "no_paper_url"
+    PreFiltered = "pre_filtered"
+    JudgeRejected = "judge_rejected"
+    JudgeCutoff = "judge_cutoff"
+    LLMError = "llm_error"
 
 
 class Paper(Base):
