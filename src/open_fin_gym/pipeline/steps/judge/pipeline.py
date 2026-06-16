@@ -1,3 +1,4 @@
+import json
 import logging
 from pathlib import Path
 
@@ -8,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from open_fin_gym.pipeline.db.tables import Chunk, Paper
 from open_fin_gym.pipeline.db.utils import set_paper_status
+from open_fin_gym.pipeline.db.tables import Chunk, Paper, RejectionReason
 from open_fin_gym.pipeline.steps.scrape_papers.types import (
     JudgeLabel,
     PaperStatus,
@@ -21,7 +23,7 @@ from .prompts import (
     build_prefilter_prompt,
     build_sift_judge_prompt,
 )
-from .types import JudgeConfig
+from .types import JudgeConfig, JudgeResult
 from .utils import filter_chunks, rank_papers_for_llm
 
 logger = logging.getLogger(__name__)
@@ -57,6 +59,9 @@ class Judge:
             output_path: Hydra run output path
             scopes: List of task scopes
         """
+        output_path = output_path / "judgments/"
+        output_path.mkdir(exist_ok=True)
+
         for scope in scopes:
             self.judge_scope(output_path, scope)
 
@@ -78,14 +83,18 @@ class Judge:
             )
             scope_papers = session.execute(stmt).scalars().all()
 
+        judgements = []
         candidates = []
+
+        logger.info(f"Judging {len(scope_papers)} papers for scope {scope.id}")
 
         for paper in scope_papers:
             if self.cfg.prefilter_enabled:
-                should_judge, prefilter_score, _ = self.llm_prefilter(scope, paper)
+                should_judge, prefilter_score, result = self.llm_prefilter(scope, paper)
             else:
                 should_judge = True
                 prefilter_score = 0.0
+                result = None
 
             if not should_judge:
                 self.set_paper_status(
@@ -93,6 +102,16 @@ class Judge:
                     PaperStatus.REJECTED,
                     prefilter_passed=False,
                     prefilter_score=prefilter_score,
+                    rejection_reason=RejectionReason.JudgeRejected,
+                )
+                judgements.append(
+                    JudgeResult(
+                        paper_id=paper.paper_id,
+                        scope_id=scope.id,
+                        accepted=False,
+                        rejection_reason=RejectionReason.JudgeRejected,
+                        reasoning=result.reasons,
+                    )
                 )
             else:
                 self.set_paper_status(
@@ -114,7 +133,20 @@ class Judge:
         rejected = sorted_candidates[-self.cfg.sift_budget :]
 
         for paper in rejected:
-            self.set_paper_status(paper.paper_id, PaperStatus.REJECTED)
+            self.set_paper_status(
+                paper.paper_id,
+                PaperStatus.REJECTED,
+                rejection_reason=RejectionReason.JudgeCutoff,
+            )
+            judgements.append(
+                JudgeResult(
+                    paper_id=paper.paper_id,
+                    scope_id=scope.id,
+                    accepted=False,
+                    rejection_reason=RejectionReason.JudgeCutoff,
+                    reasoning="Did not make judge paper cutoff",
+                )
+            )
 
         for paper in accepted:
             with Session(self.db) as session:
@@ -128,6 +160,7 @@ class Judge:
 
             try:
                 response: SiftJudgement = llm.invoke(prompt)
+                rejection_reason = None
             except Exception as e:
                 response: SiftJudgement = SiftJudgement(
                     label=JudgeLabel.REJECTED,
@@ -136,13 +169,32 @@ class Judge:
                     reasons=f"LLM error for this paper {e}",
                     evidence=Evidence(experiments="", datasets="", metrics=""),
                 )
+                rejection_reason = RejectionReason.LLMError
 
             accepted = (
                 response.label == JudgeLabel.ACCEPTED
                 and response.score >= self.cfg.threshold_default
             )
             status = PaperStatus.ACCEPTED if accepted else PaperStatus.REJECTED
-            self.set_paper_status(paper.paper_id, status)
+            self.set_paper_status(
+                paper.paper_id, status, rejection_reason=rejection_reason
+            )
+            judgements.append(
+                JudgeResult(
+                    paper_id=paper.paper_id,
+                    scope_id=scope.id,
+                    accepted=accepted,
+                    rejection_reason=rejection_reason,
+                    reasoning=response.reasons,
+                )
+            )
+
+        with open(output_path / f"{scope.id}.json", "w") as f:
+            json.dump(
+                [x.model_dump(mode="json") for x in judgements],
+                f,
+                indent=4,
+            )
 
     def llm_prefilter(
         self, scope: Scope, paper: Paper

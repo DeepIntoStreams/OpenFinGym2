@@ -1,3 +1,5 @@
+from enum import Enum as EnumType
+
 from enum import Enum as PyEnum
 from typing import List
 
@@ -28,6 +30,14 @@ from open_fin_gym.pipeline.steps.scrape_papers.types import (
 Base = declarative_base()
 
 
+class RejectionReason(str, EnumType):
+    NoPaperURL = "no_paper_url"
+    PreFiltered = "pre_filtered"
+    JudgeRejected = "judge_rejected"
+    JudgeCutoff = "judge_cutoff"
+    LLMError = "llm_error"
+
+
 class Paper(Base):
     __tablename__ = "papers"
     paper_id = Column(String, primary_key=True)
@@ -53,6 +63,7 @@ class Paper(Base):
     prefilter_score = Column(Float)
     prefilter_passed = Column(Boolean)
     status = Column(Enum(PaperStatus))
+    rejection_reason = Column(Enum(RejectionReason), nullable=True)
     __table_args__ = (
         UniqueConstraint("paper_id", "scope_id", name="paper_constraint"),
     )

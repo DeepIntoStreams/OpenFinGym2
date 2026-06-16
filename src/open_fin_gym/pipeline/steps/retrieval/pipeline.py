@@ -7,7 +7,7 @@ from langchain_text_splitters import MarkdownHeaderTextSplitter
 from sqlalchemy import Engine, insert, select, update
 from sqlalchemy.orm import Session
 
-from open_fin_gym.pipeline.db.tables import Chunk, Paper
+from open_fin_gym.pipeline.db.tables import Chunk, Paper, RejectionReason
 from open_fin_gym.pipeline.steps.scrape_papers.types import PaperStatus
 
 
@@ -42,15 +42,17 @@ class PaperRetrieval:
 
         for paper in papers:
             if not paper.pdf_url:
-                # If the paper has no pdf link then reject here
+                # If the paper has no PDF link then reject here
                 status = PaperStatus.REJECTED
+                rejection_reason = RejectionReason.NoPaperURL
                 chunks = []
             else:
                 pdf_file = tempfile.NamedTemporaryFile()
                 _, response = urlretrieve(paper.pdf_url, pdf_file.name)
-                md = pymupdf4llm.to_markdown(pdf_file)
+                md = pymupdf4llm.to_markdown(pdf_file, header=False, footer=False)
                 chunks = self.splitter.split_text(md)
                 status = PaperStatus.EXTRACTED
+                rejection_reason = None
                 chunks = [
                     dict(
                         paper_id=paper.paper_id,
@@ -65,7 +67,9 @@ class PaperRetrieval:
             with Session(self.db) as session:
                 stmt = insert(Chunk).values(chunks)
                 session.execute(stmt)
-                stmt = update(Paper).values({"status": status})
+                stmt = update(Paper).values(
+                    {"status": status, "rejection_reason": rejection_reason}
+                )
                 stmt = stmt.where(Paper.paper_id == paper.paper_id)
                 session.execute(stmt)
                 session.commit()
@@ -73,14 +77,12 @@ class PaperRetrieval:
 
 def get_header(sections: dict[str, str]) -> str:
     """
-    Get chunk section header from metadata
+    Get chunk section header tree string from metadata
 
     Args:
         sections: Dictionary of section IDs and their titles
 
     Returns:
-        The actual heading name of the chunk
+        Joined section header tree
     """
-    title = sorted([(k, v) for k, v in sections.items()], key=lambda x: x[0])[-1][1]
-    title = title.replace("*", "").strip().lower()
-    return title
+    return " -- ".join([x.replace("*", "").lower().strip() for x in sections.values()])
