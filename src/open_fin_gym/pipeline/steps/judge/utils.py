@@ -3,14 +3,15 @@ from datetime import datetime, timezone
 
 from open_fin_gym.pipeline.db.tables import Chunk, Paper
 
-HEADING_FILTERS = {
+HEADING_FILTERS = [
     "references",
     "acknowledgement",
     "acknowledgements",
     "appendix",
     "related",
     "review",
-}
+    "bibliography",
+]
 
 
 def filter_chunks(chunks: list[Chunk]) -> list[Chunk]:
@@ -24,7 +25,10 @@ def filter_chunks(chunks: list[Chunk]) -> list[Chunk]:
         List of filtered chunks
     """
     return [
-        x for x in chunks if not HEADING_FILTERS.intersection(set(x.header.split()))
+        x
+        for x in chunks
+        # if not HEADING_FILTERS.intersection(set(x.header.lower().split()))
+        if not any(map(x.header.lower().__contains__, HEADING_FILTERS))
     ]
 
 
