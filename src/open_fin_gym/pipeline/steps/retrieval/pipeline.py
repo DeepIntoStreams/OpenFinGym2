@@ -5,10 +5,11 @@ from urllib.request import urlretrieve
 
 import pymupdf4llm
 from langchain_text_splitters import MarkdownHeaderTextSplitter
-from sqlalchemy import Engine, select, update
+from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from open_fin_gym.pipeline.db.tables import Chunk, Paper, RejectionReason
+from open_fin_gym.pipeline.db.utils import set_paper_status
 from open_fin_gym.pipeline.steps.scrape_papers.types import PaperStatus
 
 logger = logging.getLogger(__name__)
@@ -91,14 +92,10 @@ class PaperRetrieval:
                     rejection_reason = RejectionReason.RetrievalError
                     chunks = []
 
+            set_paper_status(self.db, paper, status, rejection_reason=rejection_reason)
+
             with Session(self.db) as session:
                 session.add_all(chunks)
-                stmt = update(Paper).values(
-                    {"status": status, "rejection_reason": rejection_reason}
-                )
-                stmt = stmt.where(
-                    Paper.paper_id == paper.paper_id, Paper.scope_id == paper.scope_id
-                )
                 session.execute(stmt)
                 session.commit()
 

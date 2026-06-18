@@ -242,4 +242,4 @@ class Judge:
             paper: Current paper instance
             status: Status value
         """
-        set_paper_status(self.db, paper_id, status, **kwargs)
+        set_paper_status(self.db, paper, status, **kwargs)

@@ -93,7 +93,7 @@ class TaskExtractor:
                 )
                 task_summary: Optional[PaperTaskSummary] = None
 
-            set_paper_status(self.db, paper.paper_id, PaperStatus.COMPLETE)
+            set_paper_status(self.db, paper, PaperStatus.COMPLETE)
 
             if task_summary:
                 task_candidate = TaskCandidate(
