@@ -1,0 +1,12 @@
+sift_budget: 5
+prefilter_enabled: true
+prefilter_llm_score_min: 5.5
+prefilter_llm_confidence_min: 0.5
+ranking_citation_boost: 0.5
+ranking_recency_weight: 0.1
+ranking_recency_half_life_days: 365
+threshold_default: 7.0
+llm:
+  _target_: langchain_openai.chat_models.ChatOpenAI
+  model: gpt-4.1-mini
+  temperature: 0.5

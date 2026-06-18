@@ -2,10 +2,12 @@ from datetime import datetime
 from pathlib import Path
 
 import hydra
+from dotenv import load_dotenv
 from sqlalchemy import create_engine
 
 from .config import PipelineConfig
 from .db.tables import Base
+from .steps.judge.pipeline import Judge
 from .steps.retrieval.pipeline import PaperRetrieval
 from .steps.scrape_papers.pipeline import PaperScrapingPipeline
 
@@ -20,7 +22,9 @@ def run_pipeline(cfg: PipelineConfig) -> None:
     Args:
         cfg: Configuration
     """
-    db_engine = create_engine(cfg.db_engine, pool_size=150)
+    load_dotenv()
+
+    db_engine = create_engine(cfg.db_engine)
     Base.metadata.create_all(db_engine)
 
     output_dir = Path(hydra.core.hydra_config.HydraConfig.get().runtime.output_dir)
@@ -38,6 +42,9 @@ def run_pipeline(cfg: PipelineConfig) -> None:
 
     retrieval_pipeline = PaperRetrieval(db_engine)
     retrieval_pipeline.download_and_chunk_papers(output_dir)
+
+    judge_pipeline = Judge(db_engine, cfg.judge)
+    judge_pipeline.run(output_dir, scopes)
 
 
 if __name__ == "__main__":

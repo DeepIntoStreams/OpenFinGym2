@@ -113,4 +113,4 @@ def get_header(sections: dict[str, str]) -> str:
     Returns:
         Joined section header tree
     """
-    return " -- ".join([x.lower().strip() for x in sections.values()])
+    return " -- ".join([x.replace("*", "").lower().strip() for x in sections.values()])
