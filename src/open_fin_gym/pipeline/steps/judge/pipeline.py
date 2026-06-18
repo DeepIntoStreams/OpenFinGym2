@@ -97,7 +97,7 @@ class Judge:
 
             if not should_judge:
                 self.set_paper_status(
-                    paper.paper_id,
+                    paper,
                     PaperStatus.REJECTED,
                     prefilter_passed=False,
                     prefilter_score=prefilter_score,
@@ -114,7 +114,7 @@ class Judge:
                 )
             else:
                 self.set_paper_status(
-                    paper.paper_id,
+                    paper,
                     PaperStatus.EXTRACTED,
                     prefilter_passed=True,
                     prefilter_score=prefilter_score,
@@ -129,11 +129,11 @@ class Judge:
         )
 
         accepted = sorted_candidates[: self.cfg.sift_budget]
-        rejected = sorted_candidates[-self.cfg.sift_budget :]
+        rejected = sorted_candidates[len(accepted) :]
 
         for paper in rejected:
             self.set_paper_status(
-                paper.paper_id,
+                paper,
                 PaperStatus.REJECTED,
                 rejection_reason=RejectionReason.JudgeCutoff,
             )
@@ -161,6 +161,9 @@ class Judge:
                 response: SiftJudgement = llm.invoke(prompt)
                 rejection_reason = None
             except Exception as e:
+                logger.error(
+                    f"LLM judgement failed for paper {paper.paper_id} from scope {paper.scope_id}: {e}"
+                )
                 response: SiftJudgement = SiftJudgement(
                     label=JudgeLabel.REJECTED,
                     score=0,
@@ -175,9 +178,7 @@ class Judge:
                 and response.score >= self.cfg.threshold_default
             )
             status = PaperStatus.ACCEPTED if accepted else PaperStatus.REJECTED
-            self.set_paper_status(
-                paper.paper_id, status, rejection_reason=rejection_reason
-            )
+            self.set_paper_status(paper, status, rejection_reason=rejection_reason)
             judgements.append(
                 JudgeResult(
                     paper_id=paper.paper_id,
@@ -188,6 +189,7 @@ class Judge:
                 )
             )
 
+        # Dump judgements out to JSON for debugging
         with open(output_path / f"{scope.id}.json", "w") as f:
             json.dump(
                 [x.model_dump(mode="json") for x in judgements],
@@ -214,6 +216,9 @@ class Judge:
         try:
             result: PrefilterDecision = llm.invoke(prompt)
         except Exception as e:
+            logger.error(
+                f"LLM prefilter failed for paper {paper.paper_id} from scope {paper.scope_id}: {e}"
+            )
             result: PrefilterDecision = PrefilterDecision(
                 label=JudgeLabel.REJECTED,
                 relevance_score=0.0,
@@ -229,12 +234,12 @@ class Judge:
         passed = keep and score >= min_score and conf >= min_conf
         return passed, score, result
 
-    def set_paper_status(self, paper_id: str, status: PaperStatus, **kwargs) -> None:
+    def set_paper_status(self, paper: Paper, status: PaperStatus, **kwargs) -> None:
         """
         Update paper status in the DB
 
         Args:
-            paper_id: Id of the paper
+            paper: Current paper instance
             status: Status value
         """
         set_paper_status(self.db, paper_id, status, **kwargs)

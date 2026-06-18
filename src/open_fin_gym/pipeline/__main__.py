@@ -30,10 +30,12 @@ def run_pipeline(cfg: PipelineConfig) -> None:
 
     output_dir = Path(hydra.core.hydra_config.HydraConfig.get().runtime.output_dir)
 
+    scopes = [scope for scope in cfg.scraping.scopes if scope.enabled]
+
     scraping_pipeline = PaperScrapingPipeline(db_engine, cfg.scraping)
     scraping_pipeline.run(
         output_dir,
-        cfg.scraping.scopes,
+        scopes,
         datetime.strptime(cfg.scraping.since, "%Y-%m-%d"),
         datetime.strptime(cfg.scraping.until, "%Y-%m-%d"),
         cfg.scraping.max_papers_per_scope,
@@ -43,7 +45,7 @@ def run_pipeline(cfg: PipelineConfig) -> None:
     retrieval_pipeline.download_and_chunk_papers(output_dir)
 
     judge_pipeline = Judge(db_engine, cfg.judge)
-    judge_pipeline.run(output_dir, cfg.scraping.scopes)
+    judge_pipeline.run(output_dir, scopes)
 
     task_extractor = TaskExtractor(db_engine, cfg.task_extractor)
     task_extractor.run(output_dir, cfg.scraping.scopes)

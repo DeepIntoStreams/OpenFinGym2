@@ -27,14 +27,8 @@ Decision policy:
 Task:
 1) Write detailed `reasons` grounded in title/abstract words. Be specific about what evidence supports relevance or irrelevance, and how it relates to the scope definition, queries, and categories. Decide whether this paper has **STRONG EVIDENCE** of relevance while writing.
 2) Decide `label`: accepted/rejected, consistent with `reasons`.
-3) Estimate `relevance_score_0_10`.
-4) Estimate `confidence_0_1`.
-
-Output JSON only with keys:
-- reasons: string
-- label: "accepted" | "rejected"
-- relevance_score_0_10: number in [0, 10]
-- confidence_0_1: number in [0, 1]
+3) Estimate `relevance_score` in the range `[0, 10]`.
+4) Estimate `confidence` in the range `[0.0, 1.0]`.
 """.strip()
 
 
@@ -83,17 +77,7 @@ Task:
 1) Provide detailed `evidence` strings for experiments, datasets, and metrics — these are factual observations from the excerpt.
 2) Provide `reasons` grounded in the evidence above. Be specific about what evidence supports acceptance or rejection, especially for experiments, datasets, metrics, and dataset downloadability.
 3) Decide `label`: accepted/rejected, consistent with the evidence and reasons.
-4) Give `score_0_10` and `confidence_0_1`.
-
-Output JSON only with keys:
-- evidence: object with keys:
-  - experiments: str
-  - datasets: str
-  - metrics: str
-- reasons: string
-- label: "accepted" | "rejected"
-- score_0_10: number in [0, 10]
-- confidence_0_1: number in [0, 1]
+4) Give `score` in the range `[0, 10]` and `confidence` in the range `[0.0, 1.0]`.
 """.strip()
 
 

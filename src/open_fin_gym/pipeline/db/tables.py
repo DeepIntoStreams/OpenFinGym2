@@ -30,6 +30,7 @@ Base = declarative_base()
 
 class RejectionReason(str, EnumType):
     NoPaperURL = "no_paper_url"
+    RetrievalError = "retrieval_error"
     PreFiltered = "pre_filtered"
     JudgeRejected = "judge_rejected"
     JudgeCutoff = "judge_cutoff"
@@ -39,7 +40,7 @@ class RejectionReason(str, EnumType):
 class Paper(Base):
     __tablename__ = "papers"
     paper_id = Column(String, primary_key=True)
-    scope_id = Column(String, index=True)
+    scope_id = Column(String, primary_key=True)
     title = Column(String)
     abstract = Column(String)
     source = Column(Enum(SourceName))
@@ -60,7 +61,7 @@ class Paper(Base):
     peer_reviewed = Column(Boolean)
     prefilter_score = Column(Float)
     prefilter_passed = Column(Boolean)
-    status = Column(Enum(PaperStatus))
+    status = Column(Enum(PaperStatus), index=True)
     rejection_reason = Column(Enum(RejectionReason), nullable=True)
     __table_args__ = (
         UniqueConstraint("paper_id", "scope_id", name="paper_constraint"),
