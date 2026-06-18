@@ -25,10 +25,12 @@ def run_pipeline(cfg: PipelineConfig) -> None:
 
     output_dir = Path(hydra.core.hydra_config.HydraConfig.get().runtime.output_dir)
 
+    scopes = [scope for scope in cfg.scraping.scopes if scope.enabled]
+
     scraping_pipeline = PaperScrapingPipeline(db_engine, cfg.scraping)
     scraping_pipeline.run(
         output_dir,
-        cfg.scraping.scopes,
+        scopes,
         datetime.strptime(cfg.scraping.since, "%Y-%m-%d"),
         datetime.strptime(cfg.scraping.until, "%Y-%m-%d"),
         cfg.scraping.max_papers_per_scope,
