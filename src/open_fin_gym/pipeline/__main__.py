@@ -44,7 +44,7 @@ def run_pipeline(cfg: PipelineConfig) -> None:
     retrieval_pipeline.download_and_chunk_papers(output_dir)
 
     judge_pipeline = Judge(db_engine, cfg.judge)
-    judge_pipeline.run(output_dir, cfg.scraping.scopes)
+    judge_pipeline.run(output_dir, scopes)
 
 
 if __name__ == "__main__":
