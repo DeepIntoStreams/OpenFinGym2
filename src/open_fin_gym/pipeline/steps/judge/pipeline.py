@@ -96,7 +96,7 @@ class Judge:
 
             if not should_judge:
                 self.set_paper_status(
-                    paper.paper_id,
+                    paper,
                     PaperStatus.REJECTED,
                     prefilter_passed=False,
                     prefilter_score=prefilter_score,
@@ -113,7 +113,7 @@ class Judge:
                 )
             else:
                 self.set_paper_status(
-                    paper.paper_id,
+                    paper,
                     PaperStatus.EXTRACTED,
                     prefilter_passed=True,
                     prefilter_score=prefilter_score,
@@ -128,11 +128,11 @@ class Judge:
         )
 
         accepted = sorted_candidates[: self.cfg.sift_budget]
-        rejected = sorted_candidates[-self.cfg.sift_budget :]
+        rejected = sorted_candidates[len(accepted) :]
 
         for paper in rejected:
             self.set_paper_status(
-                paper.paper_id,
+                paper,
                 PaperStatus.REJECTED,
                 rejection_reason=RejectionReason.JudgeCutoff,
             )
@@ -174,9 +174,7 @@ class Judge:
                 and response.score >= self.cfg.threshold_default
             )
             status = PaperStatus.ACCEPTED if accepted else PaperStatus.REJECTED
-            self.set_paper_status(
-                paper.paper_id, status, rejection_reason=rejection_reason
-            )
+            self.set_paper_status(paper, status, rejection_reason=rejection_reason)
             judgements.append(
                 JudgeResult(
                     paper_id=paper.paper_id,
@@ -228,19 +226,21 @@ class Judge:
         passed = keep and score >= min_score and conf >= min_conf
         return passed, score, result
 
-    def set_paper_status(self, paper_id: str, status: PaperStatus, **kwargs) -> None:
+    def set_paper_status(self, paper: Paper, status: PaperStatus, **kwargs) -> None:
         """
         Update paper status in the DB
 
         Args:
-            paper_id: Id of the paper
+            paper: Current paper instance
             status: Status value
         """
         with Session(self.db) as session:
             stmt = (
                 update(Paper)
                 .values({"status": status, **kwargs})
-                .where(Paper.paper_id == paper_id)
+                .where(
+                    Paper.scope_id == paper.scope_id, Paper.paper_id == paper.paper_id
+                )
             )
             session.execute(stmt)
             session.commit()
