@@ -1,3 +1,5 @@
+from enum import Enum as EnumType
+
 from sqlalchemy import (
     Boolean,
     Column,
@@ -17,6 +19,11 @@ from open_fin_gym.pipeline.steps.scrape_papers.types import (
 )
 
 Base = declarative_base()
+
+
+class RejectionReason(str, EnumType):
+    NoPaperURL = "no_paper_url"
+    RetrievalError = "retrieval_error"
 
 
 class Paper(Base):
@@ -44,6 +51,16 @@ class Paper(Base):
     prefilter_score = Column(Float)
     prefilter_passed = Column(Boolean)
     status = Column(Enum(PaperStatus), index=True)
+    rejection_reason = Column(Enum(RejectionReason), nullable=True)
     __table_args__ = (
         UniqueConstraint("paper_id", "scope_id", name="paper_constraint"),
     )
+
+
+class Chunk(Base):
+    __tablename__ = "chunks"
+    chunk_id = Column(Integer, primary_key=True, autoincrement=True)
+    paper_id = Column(String, index=True)
+    chunk_index = Column(Integer, index=True)
+    header = Column(String)
+    text = Column(String)
