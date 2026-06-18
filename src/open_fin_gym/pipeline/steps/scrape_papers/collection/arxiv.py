@@ -53,6 +53,9 @@ class ArxivClient:
         categories = scope.categories
         date_range = _to_arxiv_date_range(since_date, until_date)
 
+        n_queries = len(scope.queries)
+        max_per_query = (max_papers - max_papers % n_queries) // n_queries
+
         for query in scope.queries:
             search_parts = [f"all:{query}"]
             if scope.categories:
@@ -63,7 +66,7 @@ class ArxivClient:
 
             search = arxiv.Search(
                 query=" AND ".join(search_parts),
-                max_results=max_papers,
+                max_results=max_per_query,
                 sort_by=self.sort_criteria,
                 sort_order=arxiv.SortOrder.Descending,
             )
