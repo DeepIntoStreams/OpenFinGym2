@@ -119,21 +119,6 @@ Metric extraction rules
   Include all paper-specific context here that was excluded from the name: scaling factors, horizons, thresholds, dataset-specific conditions, aggregation modes, and variant details.
   Capture metric variants, thresholds, horizons, aggregation, ranking/directional settings, optimization versus reporting use, higher-is-better or lower-is-better interpretation, normalization/averaging/weighting, confidence or statistical significance details, and any economic or practical interpretation discussed in the paper.
 - If the paper gives only partial details, extract every explicit clue instead of collapsing to generic descriptions.
-
-Output contract
-Output JSON only with keys, in this exact order:
-- ml_task_summary: string
-- experiments: string
-- links: array of strings
-- datasets: array of objects with keys:
-  - name: string
-  - description: string
-  - dataset_kind: "real" | "synthetic"
-- metrics: array of objects with keys:
-  - name: string
-  - description: string
-- task_family: string
-- task_name: string
 """.strip()
 
 
