@@ -160,6 +160,9 @@ class Judge:
                 response: SiftJudgement = llm.invoke(prompt)
                 rejection_reason = None
             except Exception as e:
+                logger.error(
+                    f"LLM judgement failed for paper {paper.paper_id} from scope {paper.scope_id}: {e}"
+                )
                 response: SiftJudgement = SiftJudgement(
                     label=JudgeLabel.REJECTED,
                     score=0,
@@ -185,6 +188,7 @@ class Judge:
                 )
             )
 
+        # Dump judgements out to JSON for debugging
         with open(output_path / f"{scope.id}.json", "w") as f:
             json.dump(
                 [x.model_dump(mode="json") for x in judgements],
@@ -211,6 +215,9 @@ class Judge:
         try:
             result: PrefilterDecision = llm.invoke(prompt)
         except Exception as e:
+            logger.error(
+                f"LLM prefilter failed for paper {paper.paper_id} from scope {paper.scope_id}: {e}"
+            )
             result: PrefilterDecision = PrefilterDecision(
                 label=JudgeLabel.REJECTED,
                 relevance_score=0.0,
