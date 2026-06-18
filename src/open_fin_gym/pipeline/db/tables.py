@@ -23,6 +23,7 @@ Base = declarative_base()
 
 class RejectionReason(str, EnumType):
     NoPaperURL = "no_paper_url"
+    RetrievalError = "retrieval_error"
 
 
 class Paper(Base):
