@@ -122,4 +122,6 @@ pyrightconfig.json
 *.log
 
 # Default Hydra output path
-./outputs
+/outputs
+# Default pipeline sqlite DB file
+pipeline.db

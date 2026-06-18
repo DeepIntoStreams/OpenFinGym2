@@ -1,2 +1,3 @@
-# Placeholder
-foo: bar
+defaults:
+  - scraping: default_scraper
+db_engine: sqlite:///./pipeline.db
