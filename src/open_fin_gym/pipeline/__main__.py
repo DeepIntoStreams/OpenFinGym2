@@ -6,6 +6,7 @@ from sqlalchemy import create_engine
 
 from .config import PipelineConfig
 from .db.tables import Base
+from .steps.retrieval.pipeline import PaperRetrieval
 from .steps.scrape_papers.pipeline import PaperScrapingPipeline
 
 
@@ -34,6 +35,9 @@ def run_pipeline(cfg: PipelineConfig) -> None:
         datetime.strptime(cfg.scraping.until, "%Y-%m-%d"),
         cfg.scraping.max_papers_per_scope,
     )
+
+    retrieval_pipeline = PaperRetrieval(db_engine)
+    retrieval_pipeline.download_and_chunk_papers(output_dir)
 
 
 if __name__ == "__main__":
