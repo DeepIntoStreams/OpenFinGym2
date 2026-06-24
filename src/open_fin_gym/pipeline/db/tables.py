@@ -1,6 +1,7 @@
 from enum import Enum as EnumType
-from typing import List
+from typing import Any, List
 
+from pydantic import BaseModel, Field
 from sqlalchemy import (
     Boolean,
     Column,
@@ -20,12 +21,36 @@ from sqlalchemy.orm import (
     relationship,
 )
 
-from open_fin_gym.pipeline.steps.scrape_papers.types import (
-    PaperStatus,
-    SourceName,
-)
-
 Base = declarative_base()
+
+
+class JudgeLabel(str, EnumType):
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+
+
+class JudgeDecision(BaseModel):
+    paper_id: str
+    scope_id: str
+    label: JudgeLabel
+    score_0_10: float = Field(ge=0.0, le=10.0)
+    reasons: str = ""
+    confidence_0_1: float = Field(ge=0.0, le=1.0)
+    model: str
+    raw_response: dict[str, Any] = Field(default_factory=dict)
+
+
+class PaperStatus(str, EnumType):
+    SCRAPED = "scraped"
+    EXTRACTED = "extracted"
+    ERRORED = "errored"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+
+
+class SourceName(str, EnumType):
+    ARXIV = "arxiv"
+    MANUAL = "manual"
 
 
 class RejectionReason(str, EnumType):

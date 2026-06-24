@@ -8,9 +8,13 @@ from langchain_text_splitters import MarkdownHeaderTextSplitter
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
-from open_fin_gym.pipeline.db.tables import Chunk, Paper, RejectionReason
+from open_fin_gym.pipeline.db.tables import (
+    Chunk,
+    Paper,
+    PaperStatus,
+    RejectionReason,
+)
 from open_fin_gym.pipeline.db.utils import set_paper_status
-from open_fin_gym.pipeline.steps.scrape_papers.types import PaperStatus
 
 logger = logging.getLogger(__name__)
 

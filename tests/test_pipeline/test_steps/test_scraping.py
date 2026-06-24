@@ -3,23 +3,21 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from open_fin_gym.pipeline.db.tables import Paper
+from open_fin_gym.pipeline.steps.scrape_papers.collection.config import (
+    ArxivConfig,
+    CrossrefConfig,
+    SemanticScholarConfig,
+)
+from open_fin_gym.pipeline.steps.scrape_papers.config import ScrapingConfig
 from open_fin_gym.pipeline.steps.scrape_papers.pipeline import (
     PaperScrapingPipeline,
 )
-from open_fin_gym.pipeline.steps.scrape_papers.types import (
-    ArxivConfig,
-    CrossrefConfig,
-    PaperRecord,
-    ScrapingConfig,
-    SemanticScholarConfig,
-)
+from open_fin_gym.pipeline.steps.scrape_papers.types import PaperRecord
 
 
 @pytest.fixture
 def dummy_scraping_config() -> ScrapingConfig:
     return ScrapingConfig(
-        root_dir="",
-        scopes=[],
         arxiv=ArxivConfig(),
         semantic_scholar=SemanticScholarConfig(),
         crossref=CrossrefConfig(),

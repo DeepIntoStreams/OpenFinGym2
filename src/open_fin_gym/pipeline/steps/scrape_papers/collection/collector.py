@@ -3,13 +3,13 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from open_fin_gym.pipeline.steps.scrape_papers.types import (
+from open_fin_gym.pipeline.config import Scope
+from open_fin_gym.pipeline.steps.scrape_papers.collection.config import (
     ArxivConfig,
     CrossrefConfig,
-    PaperRecord,
-    Scope,
     SemanticScholarConfig,
 )
+from open_fin_gym.pipeline.steps.scrape_papers.types import PaperRecord
 
 from .arxiv import ArxivClient
 from .crossref import CrossrefClient

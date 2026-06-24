@@ -5,10 +5,12 @@ from sqlalchemy import Engine
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import Session
 
+from open_fin_gym.pipeline.config import Scope
 from open_fin_gym.pipeline.db.tables import Paper
 
 from .collection.collector import PaperCollector, logger
-from .types import PaperRecord, Scope, ScrapingConfig
+from .config import ScrapingConfig
+from .types import PaperRecord
 
 
 class PaperScrapingPipeline:

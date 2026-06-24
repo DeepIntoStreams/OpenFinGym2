@@ -7,14 +7,17 @@ from langchain_core.language_models import BaseChatModel
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
-from open_fin_gym.pipeline.db.tables import Chunk, Paper, RejectionReason
+from open_fin_gym.pipeline.config import Scope
 from open_fin_gym.pipeline.db.utils import set_paper_status
-from open_fin_gym.pipeline.steps.scrape_papers.types import (
+from open_fin_gym.pipeline.db.tables import (
+    Chunk,
     JudgeLabel,
+    Paper,
     PaperStatus,
-    Scope,
+    RejectionReason,
 )
 
+from .config import JudgeConfig
 from .prompts import (
     Evidence,
     PrefilterDecision,
@@ -22,7 +25,7 @@ from .prompts import (
     build_prefilter_prompt,
     build_sift_judge_prompt,
 )
-from .types import JudgeConfig, JudgeResult
+from .types import JudgeResult
 from .utils import filter_chunks, rank_papers_for_llm
 
 logger = logging.getLogger(__name__)
