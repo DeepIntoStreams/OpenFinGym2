@@ -8,7 +8,6 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from open_fin_gym.pipeline.config import Scope
-from open_fin_gym.pipeline.db.utils import set_paper_status
 from open_fin_gym.pipeline.db.tables import (
     Chunk,
     JudgeLabel,
@@ -16,6 +15,7 @@ from open_fin_gym.pipeline.db.tables import (
     PaperStatus,
     RejectionReason,
 )
+from open_fin_gym.pipeline.db.utils import set_paper_status
 
 from .config import JudgeConfig
 from .prompts import (

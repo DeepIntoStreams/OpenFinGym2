@@ -8,6 +8,7 @@ from langchain_core.language_models import BaseChatModel
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
+from open_fin_gym.pipeline.config import Scope
 from open_fin_gym.pipeline.db.tables import (
     Chunk,
     DatasetCandidate,
@@ -17,10 +18,10 @@ from open_fin_gym.pipeline.db.tables import (
 )
 from open_fin_gym.pipeline.db.utils import set_paper_status
 from open_fin_gym.pipeline.steps.judge.utils import filter_chunks
-from open_fin_gym.pipeline.steps.scrape_papers.types import PaperStatus, Scope
+from open_fin_gym.pipeline.steps.scrape_papers.types import PaperStatus
 
+from .config import TaskExtractionConfig
 from .prompts import PaperTaskSummary, build_paper_summary_prompt
-from .types import TaskExtractionConfig
 
 logger = logging.getLogger(__name__)
 

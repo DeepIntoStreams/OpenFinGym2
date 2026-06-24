@@ -46,6 +46,7 @@ class PaperStatus(str, EnumType):
     ERRORED = "errored"
     ACCEPTED = "accepted"
     REJECTED = "rejected"
+    COMPLETE = "complete"
 
 
 class SourceName(str, EnumType):

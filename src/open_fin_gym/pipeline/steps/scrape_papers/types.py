@@ -30,14 +30,3 @@ class PaperRecord(BaseModel):
     prefilter_score: float = 0.0
     prefilter_passed: bool = False
     status: PaperStatus = PaperStatus.SCRAPED
-
-
-def scope_context(scope: Scope) -> str:
-    query_block = "\n".join(f"- {q}" for q in scope.queries[:10]) or "- (none)"
-    categories = ", ".join(scope.categories) or "(none)"
-    return (
-        f"Scope name: {scope.name}\n"
-        f"Scope description: {scope.description}\n"
-        f"Scope categories: {categories}\n"
-        f"Scope queries:\n{query_block}"
-    )

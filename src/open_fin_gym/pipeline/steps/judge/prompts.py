@@ -1,18 +1,7 @@
 from pydantic import BaseModel, Field
 
-from open_fin_gym.pipeline.config import Scope
+from open_fin_gym.pipeline.config import Scope, scope_context
 from open_fin_gym.pipeline.db.tables import JudgeLabel, Paper
-
-
-def _scope_context(scope: Scope) -> str:
-    query_block = "\n".join(f"- {q}" for q in scope.queries[:10]) or "- (none)"
-    categories = ", ".join(scope.categories) or "(none)"
-    return (
-        f"Scope name: {scope.name}\n"
-        f"Scope description: {scope.description}\n"
-        f"Scope categories: {categories}\n"
-        f"Scope queries:\n{query_block}"
-    )
 
 
 def build_prefilter_prompt(scope: Scope, paper: Paper) -> str:

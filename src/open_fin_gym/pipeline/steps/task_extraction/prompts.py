@@ -1,10 +1,7 @@
 from pydantic import BaseModel
 
+from open_fin_gym.pipeline.config import Scope, scope_context
 from open_fin_gym.pipeline.db.tables import DatasetType, Paper, TaskType
-from open_fin_gym.pipeline.steps.scrape_papers.types import (
-    Scope,
-    scope_context,
-)
 
 
 def build_paper_summary_prompt(
