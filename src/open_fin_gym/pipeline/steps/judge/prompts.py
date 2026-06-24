@@ -1,7 +1,7 @@
 from pydantic import BaseModel, Field
 
-from open_fin_gym.pipeline.db.tables import Paper
-from open_fin_gym.pipeline.steps.scrape_papers.types import JudgeLabel, Scope
+from open_fin_gym.pipeline.config import Scope
+from open_fin_gym.pipeline.db.tables import JudgeLabel, Paper
 
 
 def _scope_context(scope: Scope) -> str:

@@ -29,7 +29,7 @@ def run_pipeline(cfg: PipelineConfig) -> None:
 
     output_dir = Path(hydra.core.hydra_config.HydraConfig.get().runtime.output_dir)
 
-    scopes = [scope for scope in cfg.scraping.scopes if scope.enabled]
+    scopes = [scope for scope in cfg.scopes if scope.enabled]
 
     scraping_pipeline = PaperScrapingPipeline(db_engine, cfg.scraping)
     scraping_pipeline.run(

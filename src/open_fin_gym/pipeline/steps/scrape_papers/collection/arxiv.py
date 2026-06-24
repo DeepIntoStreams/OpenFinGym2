@@ -3,11 +3,9 @@ from datetime import datetime, timezone
 
 import arxiv
 
-from open_fin_gym.pipeline.steps.scrape_papers.types import (
-    PaperRecord,
-    Scope,
-    SourceName,
-)
+from open_fin_gym.pipeline.config import Scope
+from open_fin_gym.pipeline.db.tables import SourceName
+from open_fin_gym.pipeline.steps.scrape_papers.types import PaperRecord
 
 from .config import ArxivConfig
 
