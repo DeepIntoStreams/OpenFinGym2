@@ -6,6 +6,7 @@ db_engine: sqlite:///./pipeline.db
 scopes:
   - id: financial_return_forecasting
     name: "Financial Return Forecasting"
+    task_type: "forecasting"
     description: >
       Forecasting of financial returns, prices, or volatility from financial time-series
       data using machine learning or deep learning models, including point prediction,

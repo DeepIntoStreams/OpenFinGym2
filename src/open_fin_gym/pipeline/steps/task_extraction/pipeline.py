@@ -9,19 +9,14 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from open_fin_gym.pipeline.config import Scope
-from open_fin_gym.pipeline.db.tables import (
-    Chunk,
-    DatasetCandidate,
-    MetricCandidate,
-    Paper,
-    TaskCandidate,
-)
+from open_fin_gym.pipeline.db.tables import Chunk, Paper, TaskCandidate
 from open_fin_gym.pipeline.db.utils import set_paper_status
 from open_fin_gym.pipeline.steps.judge.utils import filter_chunks
 from open_fin_gym.pipeline.steps.scrape_papers.types import PaperStatus
 
 from .config import TaskExtractionConfig
-from .prompts import PaperTaskSummary, build_paper_summary_prompt
+from .prompts import PaperTaskSpecification, build_paper_summary_prompt
+from .utils import unpack_datasets, unpack_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -83,16 +78,16 @@ class TaskExtractor:
             chunks = filter_chunks(chunks)
             extract = "\n\n".join([x.text for x in chunks])
             prompt = build_paper_summary_prompt(scope, paper, extract)
-            llm = self.llm.with_structured_output(PaperTaskSummary)
+            llm = self.llm.with_structured_output(PaperTaskSpecification)
 
             try:
-                task_summary: Optional[PaperTaskSummary] = llm.invoke(prompt)
+                task_summary: Optional[PaperTaskSpecification] = llm.invoke(prompt)
                 task_summaries.append(task_summary)
             except Exception as e:
                 logger.error(
                     f"Task extraction failed from paper {paper.paper_id} from scope {scope.id} due to {e}"
                 )
-                task_summary: Optional[PaperTaskSummary] = None
+                task_summary: Optional[PaperTaskSpecification] = None
 
             set_paper_status(self.db, paper, PaperStatus.COMPLETE)
 
@@ -101,33 +96,11 @@ class TaskExtractor:
                     scope_id=scope.id,
                     paper_id=paper.paper_id,
                     task_name=task_summary.task_name,
-                    ml_task_summary=task_summary.ml_task_summary,
-                    experiments=task_summary.experiments,
-                    links=task_summary.links,
-                    task_family=task_summary.task_family,
+                    description=task_summary.task_description,
                 )
                 task_candidates.append(task_candidate)
-                dataset_candidates.extend(
-                    [
-                        DatasetCandidate(
-                            name=x.name,
-                            description=x.description,
-                            dataset_type=x.dataset_type,
-                            task_candidate=task_candidate,
-                        )
-                        for x in task_summary.datasets
-                    ]
-                )
-                metric_candidates.extend(
-                    [
-                        MetricCandidate(
-                            name=x.name,
-                            description=x.description,
-                            task_candidate=task_candidate,
-                        )
-                        for x in task_summary.metrics
-                    ]
-                )
+                dataset_candidates.extend(unpack_datasets(task_candidate))
+                metric_candidates.extend(unpack_metrics(task_candidate))
 
         with Session(self.db) as session:
             session.add_all(task_candidates)
