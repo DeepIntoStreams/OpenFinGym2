@@ -9,7 +9,15 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from open_fin_gym.pipeline.config import Scope
-from open_fin_gym.pipeline.db.tables import Chunk, Paper, TaskCandidate
+from open_fin_gym.pipeline.db.tables import (
+    Chunk,
+    GroundTruthDatasetCandidate,
+    Paper,
+    TaskCandidate,
+    TestInputDatasetCandidate,
+    TestOutputDatasetCandidate,
+    TrainDatasetCandidate,
+)
 from open_fin_gym.pipeline.db.utils import set_paper_status
 from open_fin_gym.pipeline.steps.judge.utils import filter_chunks
 from open_fin_gym.pipeline.steps.scrape_papers.types import PaperStatus
@@ -98,8 +106,34 @@ class TaskExtractor:
                     task_name=task_summary.task_name,
                     description=task_summary.task_description,
                 )
+
+                training_data = unpack_datasets(
+                    TrainDatasetCandidate, task_candidate, task_summary.training_data
+                )
+                task_candidate.training_data.extend(training_data)
+                dataset_candidates.extend(training_data)
+
+                test_input_datasets = unpack_datasets(
+                    TestInputDatasetCandidate, task_candidate, task_summary.test_input
+                )
+                task_candidate.test_input.extend(test_input_datasets)
+                dataset_candidates.extend(test_input_datasets)
+
+                test_output_datasets = unpack_datasets(
+                    TestOutputDatasetCandidate, task_candidate, task_summary.test_output
+                )
+                task_candidate.test_output.extend(test_output_datasets)
+                dataset_candidates.extend(test_output_datasets)
+
+                ground_truth_datasets = unpack_datasets(
+                    GroundTruthDatasetCandidate,
+                    task_candidate,
+                    task_summary.ground_truth_data,
+                )
+                task_candidate.ground_truth_data.extend(ground_truth_datasets)
+                dataset_candidates.extend(ground_truth_datasets)
+
                 task_candidates.append(task_candidate)
-                dataset_candidates.extend(unpack_datasets(task_candidate))
                 metric_candidates.extend(unpack_metrics(task_candidate))
 
         with Session(self.db) as session:
