@@ -1,5 +1,5 @@
 from enum import Enum as EnumType
-from typing import Any
+from typing import Any, List
 
 from pydantic import BaseModel, Field
 from sqlalchemy import (
@@ -8,14 +8,25 @@ from sqlalchemy import (
     DateTime,
     Enum,
     Float,
+    ForeignKey,
     Integer,
     String,
     UniqueConstraint,
 )
 from sqlalchemy.dialects.sqlite.json import JSON
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import (
+    Mapped,
+    declarative_base,
+    mapped_column,
+    relationship,
+)
 
 Base = declarative_base()
+
+
+class TaskType(str, EnumType):
+    FORECASTING = "forecasting"
+    GENERATION = "generation"
 
 
 class JudgeLabel(str, EnumType):
@@ -40,6 +51,8 @@ class PaperStatus(str, EnumType):
     ERRORED = "errored"
     ACCEPTED = "accepted"
     REJECTED = "rejected"
+    TASK_EXTRACTED = "task_extracted"
+    TASK_EXTRACTION_FAILED = "task_extraction_failed"
 
 
 class SourceName(str, EnumType):
@@ -94,3 +107,71 @@ class Chunk(Base):
     chunk_index = Column(Integer, index=True)
     header = Column(String)
     text = Column(String)
+
+
+class TaskCandidate(Base):
+    __tablename__ = "task_candidates"
+    task_id = Column(Integer, primary_key=True, autoincrement=True)
+    scope_id = Column(String, index=True)
+    paper_id = Column(String, index=True)
+    new = Column(Boolean, default=True)
+    task_name = Column(String)
+    description = Column(String)
+    training_inputs: Mapped[List["TrainInputDatasetCandidate"]] = relationship(
+        "TrainInputDatasetCandidate", backref="task_candidate"
+    )
+    training_targets: Mapped[List["TrainTargetDatasetCandidate"]] = relationship(
+        "TrainTargetDatasetCandidate", backref="task_candidate"
+    )
+    test_inputs: Mapped[List["TestInputDatasetCandidate"]] = relationship(
+        "TestInputDatasetCandidate", backref="task_candidate"
+    )
+    test_outputs: Mapped[List["TestOutputDatasetCandidate"]] = relationship(
+        "TestOutputDatasetCandidate", backref="task_candidate"
+    )
+    test_targets: Mapped[List["TestTargetDatasetCandidate"]] = relationship(
+        "TestTargetDatasetCandidate", backref="task_candidate"
+    )
+    assessment_metrics: Mapped[List["MetricCandidate"]] = relationship(
+        "MetricCandidate", backref="task_candidate"
+    )
+
+
+class BaseDatasetCandidate(Base):
+    __abstract__ = True
+    dataset_id = Column(Integer, primary_key=True, autoincrement=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("task_candidates.task_id"))
+    name = Column(String)
+    filename = Column(String)
+    description = Column(String)
+    source = Column(String)
+    relevant_urls = Column(JSON)
+
+
+class TrainInputDatasetCandidate(BaseDatasetCandidate):
+    __tablename__ = "train_input_dataset_candidates"
+
+
+class TrainTargetDatasetCandidate(BaseDatasetCandidate):
+    __tablename__ = "train_target_dataset_candidates"
+
+
+class TestInputDatasetCandidate(BaseDatasetCandidate):
+    __tablename__ = "test_input_dataset_candidates"
+
+
+class TestOutputDatasetCandidate(BaseDatasetCandidate):
+    __tablename__ = "test_output_dataset_candidates"
+
+
+class TestTargetDatasetCandidate(BaseDatasetCandidate):
+    __tablename__ = "test_target_dataset_candidates"
+
+
+class MetricCandidate(Base):
+    __tablename__ = "metric_candidates"
+    metric_id = Column(Integer, primary_key=True, autoincrement=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("task_candidates.task_id"))
+    name = Column(String)
+    description = Column(String)
+    input_datasets = Column(JSON)

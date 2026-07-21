@@ -4,7 +4,7 @@ from pathlib import Path
 
 from hydra.utils import instantiate
 from langchain_core.language_models import BaseChatModel
-from sqlalchemy import Engine, select, update
+from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from open_fin_gym.pipeline.config import Scope
@@ -15,6 +15,7 @@ from open_fin_gym.pipeline.db.tables import (
     PaperStatus,
     RejectionReason,
 )
+from open_fin_gym.pipeline.db.utils import set_paper_status
 
 from .config import JudgeConfig
 from .prompts import (
@@ -244,13 +245,4 @@ class Judge:
             paper: Current paper instance
             status: Status value
         """
-        with Session(self.db) as session:
-            stmt = (
-                update(Paper)
-                .values({"status": status, **kwargs})
-                .where(
-                    Paper.scope_id == paper.scope_id, Paper.paper_id == paper.paper_id
-                )
-            )
-            session.execute(stmt)
-            session.commit()
+        set_paper_status(self.db, paper, status, **kwargs)
