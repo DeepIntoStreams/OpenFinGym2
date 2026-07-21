@@ -125,3 +125,4 @@ pyrightconfig.json
 /outputs
 # Default pipeline sqlite DB file
 pipeline.db
+mlruns.db

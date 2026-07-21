@@ -1,7 +1,9 @@
+from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
 
 import hydra
+import mlflow
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
 
@@ -23,6 +25,14 @@ def run_pipeline(cfg: PipelineConfig) -> None:
     Args:
         cfg: Configuration
     """
+
+    use_mlflow = "mlflow" in cfg
+
+    if use_mlflow:
+        mlflow.set_tracking_uri(cfg.mlflow.tracking_uri)
+        mlflow.langchain.autolog()
+        mlflow.set_experiment(cfg.mlflow.experiment_name)
+
     load_dotenv()
 
     db_engine = create_engine(cfg.db_engine)
@@ -32,23 +42,26 @@ def run_pipeline(cfg: PipelineConfig) -> None:
 
     scopes = [scope for scope in cfg.scopes if scope.enabled]
 
-    scraping_pipeline = PaperScrapingPipeline(db_engine, cfg.scraping)
-    scraping_pipeline.run(
-        output_dir,
-        scopes,
-        datetime.strptime(cfg.scraping.since, "%Y-%m-%d"),
-        datetime.strptime(cfg.scraping.until, "%Y-%m-%d"),
-        cfg.scraping.max_papers_per_scope,
-    )
+    context = mlflow.start_run() if use_mlflow else nullcontext()
 
-    retrieval_pipeline = PaperRetrieval(db_engine)
-    retrieval_pipeline.download_and_chunk_papers(output_dir)
+    with context:
+        scraping_pipeline = PaperScrapingPipeline(db_engine, cfg.scraping)
+        scraping_pipeline.run(
+            output_dir,
+            scopes,
+            datetime.strptime(cfg.scraping.since, "%Y-%m-%d"),
+            datetime.strptime(cfg.scraping.until, "%Y-%m-%d"),
+            cfg.scraping.max_papers_per_scope,
+        )
 
-    judge_pipeline = Judge(db_engine, cfg.judge)
-    judge_pipeline.run(output_dir, scopes)
+        retrieval_pipeline = PaperRetrieval(db_engine)
+        retrieval_pipeline.download_and_chunk_papers(output_dir)
 
-    task_extractor = TaskExtractor(db_engine, cfg.task_extractor)
-    task_extractor.run(output_dir, scopes)
+        judge_pipeline = Judge(db_engine, cfg.judge)
+        judge_pipeline.run(output_dir, scopes)
+
+        task_extractor = TaskExtractor(db_engine, cfg.task_extractor)
+        task_extractor.run(output_dir, scopes)
 
 
 if __name__ == "__main__":

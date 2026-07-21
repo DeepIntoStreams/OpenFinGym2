@@ -146,6 +146,7 @@ class BaseDatasetCandidate(Base):
     description = Column(String)
     source = Column(String)
     relevant_urls = Column(JSON)
+    download_link = Column(String, nullable=True)
 
 
 class TrainInputDatasetCandidate(BaseDatasetCandidate):
