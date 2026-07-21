@@ -12,6 +12,12 @@ The pipeline can then be run using
 uv run pipeline
 ```
 
+If using MlFlow for LLM tracking you should run a client with
+
+```commandline
+uv run mlflow server --host 127.0.0.1 --port 8080 --backend-store-uri sqlite:///./mlruns.db
+```
+
 ## Developers
 
 Developer notes can be found [here](.github/docs/developers.md)

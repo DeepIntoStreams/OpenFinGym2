@@ -48,12 +48,6 @@ assessed on the MSE between the predicted and ground-truth prices, the specifica
 - Assessment metrics:
     - MSE: The mean-squared-error between y_pred and y_test
 
-## Paper
-
-Title: {paper.title}
-
-{excerpt}
-
 ## Notes
 
 - These description you produce will then be used by downstream tasks to define the task, and write code to retrieve and save the datasets and assess the task.
@@ -62,6 +56,12 @@ Title: {paper.title}
   user will write their output to a file, which will then be read and assessed using the task metrics.
 - The dataset descriptions should be sufficiently detailed to allow a user to write a script to retrieve/download the data from public sources. Where possible
   use direct links found in the paper itself.
+
+## Paper
+
+Title: {paper.title}
+
+{excerpt}
 """.strip()
 
 
@@ -74,6 +74,9 @@ class Dataset(BaseModel):
     source: str = Field(description="Where the data was sourced from")
     relevant_urls: list[str] = Field(
         description="URLs related to the dataset, e.g. download links"
+    )
+    download_link: str | None = Field(
+        description="Optional dataset direct download link if available"
     )
 
 
@@ -88,6 +91,7 @@ class AssessmentMetric(BaseModel):
 
 
 class PaperTaskSpecification(BaseModel):
+    reasoning: str
     task_name: str = Field(description="Name id assigned to the task")
     task_description: str = Field(
         description="Description of the ML task including the data and how it is assessed"

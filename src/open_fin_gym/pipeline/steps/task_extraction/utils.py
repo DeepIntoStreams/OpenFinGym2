@@ -29,11 +29,12 @@ def unpack_datasets(
 
     return [
         dataset_type(
-            name=x.name,
+            name=x.name.lower().strip().replace(" ", "_"),
             filename=x.filename,
             description=x.description,
             source=x.source,
             relevant_urls=x.relevant_urls,
+            download_link=x.download_link,
             task_candidate=task_candidate,
         )
         for x in datasets
