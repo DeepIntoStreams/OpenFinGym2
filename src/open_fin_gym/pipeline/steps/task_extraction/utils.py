@@ -1,21 +1,23 @@
 from typing import Type
 
 from open_fin_gym.pipeline.db.tables import (
-    GroundTruthDatasetCandidate,
     MetricCandidate,
     TaskCandidate,
     TestInputDatasetCandidate,
     TestOutputDatasetCandidate,
-    TrainDatasetCandidate,
+    TestTargetDatasetCandidate,
+    TrainInputDatasetCandidate,
+    TrainTargetDatasetCandidate,
 )
 
 from .prompts import Dataset
 
 type DatasetType = (
-    TrainDatasetCandidate
+    TrainInputDatasetCandidate
+    | TrainTargetDatasetCandidate
     | TestInputDatasetCandidate
     | TestOutputDatasetCandidate
-    | GroundTruthDatasetCandidate
+    | TestTargetDatasetCandidate
 )
 
 

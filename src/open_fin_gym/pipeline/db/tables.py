@@ -51,7 +51,8 @@ class PaperStatus(str, EnumType):
     ERRORED = "errored"
     ACCEPTED = "accepted"
     REJECTED = "rejected"
-    COMPLETE = "complete"
+    TASK_EXTRACTED = "task_extracted"
+    TASK_EXTRACTION_FAILED = "task_extraction_failed"
 
 
 class SourceName(str, EnumType):
@@ -116,25 +117,28 @@ class TaskCandidate(Base):
     new = Column(Boolean, default=True)
     task_name = Column(String)
     description = Column(String)
-    training_data: Mapped[List["TrainDatasetCandidate"]] = relationship(
-        "TrainDatasetCandidate", backref="task_candidate"
+    training_inputs: Mapped[List["TrainInputDatasetCandidate"]] = relationship(
+        "TrainInputDatasetCandidate", backref="task_candidate"
     )
-    test_input: Mapped[List["TestInputDatasetCandidate"]] = relationship(
+    training_targets: Mapped[List["TrainTargetDatasetCandidate"]] = relationship(
+        "TrainTargetDatasetCandidate", backref="task_candidate"
+    )
+    test_inputs: Mapped[List["TestInputDatasetCandidate"]] = relationship(
         "TestInputDatasetCandidate", backref="task_candidate"
     )
-    test_output: Mapped[List["TestOutputDatasetCandidate"]] = relationship(
+    test_outputs: Mapped[List["TestOutputDatasetCandidate"]] = relationship(
         "TestOutputDatasetCandidate", backref="task_candidate"
     )
-    ground_truth_data: Mapped[List["GroundTruthDatasetCandidate"]] = relationship(
-        "GroundTruthDatasetCandidate", backref="task_candidate"
+    test_targets: Mapped[List["TestTargetDatasetCandidate"]] = relationship(
+        "TestTargetDatasetCandidate", backref="task_candidate"
     )
     assessment_metrics: Mapped[List["MetricCandidate"]] = relationship(
         "MetricCandidate", backref="task_candidate"
     )
 
 
-class TrainDatasetCandidate(Base):
-    __tablename__ = "train_dataset_candidates"
+class BaseDatasetCandidate(Base):
+    __abstract__ = True
     dataset_id = Column(Integer, primary_key=True, autoincrement=True)
     task_id: Mapped[int] = mapped_column(ForeignKey("task_candidates.task_id"))
     name = Column(String)
@@ -144,37 +148,24 @@ class TrainDatasetCandidate(Base):
     relevant_urls = Column(JSON)
 
 
-class TestInputDatasetCandidate(Base):
+class TrainInputDatasetCandidate(BaseDatasetCandidate):
+    __tablename__ = "train_input_dataset_candidates"
+
+
+class TrainTargetDatasetCandidate(BaseDatasetCandidate):
+    __tablename__ = "train_target_dataset_candidates"
+
+
+class TestInputDatasetCandidate(BaseDatasetCandidate):
     __tablename__ = "test_input_dataset_candidates"
-    dataset_id = Column(Integer, primary_key=True, autoincrement=True)
-    task_id: Mapped[int] = mapped_column(ForeignKey("task_candidates.task_id"))
-    name = Column(String)
-    filename = Column(String)
-    description = Column(String)
-    source = Column(String)
-    relevant_urls = Column(JSON)
 
 
-class TestOutputDatasetCandidate(Base):
+class TestOutputDatasetCandidate(BaseDatasetCandidate):
     __tablename__ = "test_output_dataset_candidates"
-    dataset_id = Column(Integer, primary_key=True, autoincrement=True)
-    task_id: Mapped[int] = mapped_column(ForeignKey("task_candidates.task_id"))
-    name = Column(String)
-    filename = Column(String)
-    description = Column(String)
-    source = Column(String)
-    relevant_urls = Column(JSON)
 
 
-class GroundTruthDatasetCandidate(Base):
-    __tablename__ = "ground_truth_dataset_candidates"
-    dataset_id = Column(Integer, primary_key=True, autoincrement=True)
-    task_id: Mapped[int] = mapped_column(ForeignKey("task_candidates.task_id"))
-    name = Column(String)
-    filename = Column(String)
-    description = Column(String)
-    source = Column(String)
-    relevant_urls = Column(JSON)
+class TestTargetDatasetCandidate(BaseDatasetCandidate):
+    __tablename__ = "test_target_dataset_candidates"
 
 
 class MetricCandidate(Base):

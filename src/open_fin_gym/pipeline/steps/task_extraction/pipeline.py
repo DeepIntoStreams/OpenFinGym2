@@ -11,12 +11,13 @@ from sqlalchemy.orm import Session
 from open_fin_gym.pipeline.config import Scope
 from open_fin_gym.pipeline.db.tables import (
     Chunk,
-    GroundTruthDatasetCandidate,
     Paper,
     TaskCandidate,
     TestInputDatasetCandidate,
     TestOutputDatasetCandidate,
-    TrainDatasetCandidate,
+    TestTargetDatasetCandidate,
+    TrainInputDatasetCandidate,
+    TrainTargetDatasetCandidate,
 )
 from open_fin_gym.pipeline.db.utils import set_paper_status
 from open_fin_gym.pipeline.steps.judge.utils import filter_chunks
@@ -91,13 +92,13 @@ class TaskExtractor:
             try:
                 task_summary: Optional[PaperTaskSpecification] = llm.invoke(prompt)
                 task_summaries.append(task_summary)
+                set_paper_status(self.db, paper, PaperStatus.TASK_EXTRACTED)
             except Exception as e:
                 logger.error(
                     f"Task extraction failed from paper {paper.paper_id} from scope {scope.id} due to {e}"
                 )
                 task_summary: Optional[PaperTaskSpecification] = None
-
-            set_paper_status(self.db, paper, PaperStatus.COMPLETE)
+                set_paper_status(self.db, paper, PaperStatus.TASK_EXTRACTION_FAILED)
 
             if task_summary:
                 task_candidate = TaskCandidate(
@@ -107,31 +108,43 @@ class TaskExtractor:
                     description=task_summary.task_description,
                 )
 
-                training_data = unpack_datasets(
-                    TrainDatasetCandidate, task_candidate, task_summary.training_data
+                training_input_data = unpack_datasets(
+                    TrainInputDatasetCandidate,
+                    task_candidate,
+                    task_summary.training_inputs,
                 )
-                task_candidate.training_data.extend(training_data)
-                dataset_candidates.extend(training_data)
+                task_candidate.training_inputs.extend(training_input_data)
+                dataset_candidates.extend(training_input_data)
+
+                training_target_data = unpack_datasets(
+                    TrainTargetDatasetCandidate,
+                    task_candidate,
+                    task_summary.training_targets,
+                )
+                task_candidate.training_targets.extend(training_target_data)
+                dataset_candidates.extend(training_target_data)
 
                 test_input_datasets = unpack_datasets(
-                    TestInputDatasetCandidate, task_candidate, task_summary.test_input
+                    TestInputDatasetCandidate, task_candidate, task_summary.test_inputs
                 )
-                task_candidate.test_input.extend(test_input_datasets)
+                task_candidate.test_inputs.extend(test_input_datasets)
                 dataset_candidates.extend(test_input_datasets)
 
                 test_output_datasets = unpack_datasets(
-                    TestOutputDatasetCandidate, task_candidate, task_summary.test_output
+                    TestOutputDatasetCandidate,
+                    task_candidate,
+                    task_summary.test_outputs,
                 )
-                task_candidate.test_output.extend(test_output_datasets)
+                task_candidate.test_outputs.extend(test_output_datasets)
                 dataset_candidates.extend(test_output_datasets)
 
-                ground_truth_datasets = unpack_datasets(
-                    GroundTruthDatasetCandidate,
+                test_target_datasets = unpack_datasets(
+                    TestTargetDatasetCandidate,
                     task_candidate,
-                    task_summary.ground_truth_data,
+                    task_summary.test_targets,
                 )
-                task_candidate.ground_truth_data.extend(ground_truth_datasets)
-                dataset_candidates.extend(ground_truth_datasets)
+                task_candidate.test_targets.extend(test_target_datasets)
+                dataset_candidates.extend(test_target_datasets)
 
                 task_candidates.append(task_candidate)
                 metric_candidates.extend(unpack_metrics(task_candidate))
