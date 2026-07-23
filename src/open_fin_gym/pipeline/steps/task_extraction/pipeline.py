@@ -13,6 +13,7 @@ from open_fin_gym.pipeline.db.tables import (
     Chunk,
     Paper,
     TaskCandidate,
+    TaskStatus,
     TestInputDatasetCandidate,
     TestOutputDatasetCandidate,
     TestTargetDatasetCandidate,
@@ -106,6 +107,7 @@ class TaskExtractor:
                     paper_id=paper.paper_id,
                     task_name=task_summary.task_name,
                     description=task_summary.task_description,
+                    status=TaskStatus.NEW,
                 )
 
                 training_input_data = unpack_datasets(
@@ -146,8 +148,13 @@ class TaskExtractor:
                 task_candidate.test_targets.extend(test_target_datasets)
                 dataset_candidates.extend(test_target_datasets)
 
+                metrics = unpack_metrics(
+                    task_candidate, task_summary.assessment_metrics
+                )
+                task_candidate.assessment_metrics.extend(metrics)
+                metric_candidates.extend(metrics)
+
                 task_candidates.append(task_candidate)
-                metric_candidates.extend(unpack_metrics(task_candidate))
 
         with Session(self.db) as session:
             session.add_all(task_candidates)

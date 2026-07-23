@@ -5,6 +5,7 @@ defaults:
   - scraping: default_scraper
   - judge: default_judge
   - task_extractor: default_task_extractor
+  - task_generator: default_task_generator
 db_engine: sqlite:///./pipeline.db
 scopes:
   - id: financial_return_forecasting
