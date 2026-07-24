@@ -1,6 +1,7 @@
 import logging
 from pathlib import Path
 
+from jinja2 import Environment, FileSystemLoader
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
@@ -18,6 +19,14 @@ class TaskExporter:
         self.db = db
         self.export_path = Path(cfg.export_path)
         self.export_path.mkdir(exist_ok=True)
+        self.template_env = Environment(loader=FileSystemLoader(cfg.templates_path))
+        self.task_meta_template = self.template_env.get_template("task.toml.j2")
+        self.train_docker_template = self.template_env.get_template(
+            "train.Dockerfile.j2"
+        )
+        self.test_docker_template = self.template_env.get_template("test.Dockerfile.j2")
+        self.test_script_template = self.template_env.get_template("test.sh.j2")
+        self.task_meta = cfg.task_config
 
     def run(self, output_path: Path, scopes: list[Scope]) -> None:
         """
@@ -43,22 +52,20 @@ class TaskExporter:
 
         for task in tasks:
             try:
-                # Output this structure
-                # my-task/
-                # ├── task.toml
-                # ├── instruction.md
-                # ├── environment/
-                # │   └── Dockerfile
-                # └── tests/
-                #     ├── Dockerfile
-                #     ├── test.sh
-                #     └── grader.py
-
                 task_id = task.name.strip().lower().replace(" ", "_")
                 task_dir = self.export_path / task_id
                 task_dir.mkdir()
 
-                # TODO: Write task.toml file
+                task_config = self.task_meta_template.render(
+                    org_name=self.task_meta.org_name,
+                    task_name=task_id,
+                    description="",
+                    keywords=[],
+                    difficulty_explanation="",
+                )
+
+                with open(task_dir / "task.toml", "w") as f:
+                    f.write(task_config)
 
                 with open(task_dir / "instruction.md", "w") as f:
                     f.write(task.instructions)
@@ -66,7 +73,11 @@ class TaskExporter:
                 env_dir = task_dir / "environment"
                 env_dir.mkdir()
 
-                # TODO: Write DockerFile to this dir
+                uv_req = " ".join([f"--with {x}" for x in task.requirements])
+                train_docker = self.train_docker_template.render(requirements=uv_req)
+
+                with open(env_dir / "Dockerfile", "w") as f:
+                    f.write(train_docker)
 
                 with open(env_dir / "data.py", "w") as f:
                     f.write(task.train_script)
@@ -74,13 +85,21 @@ class TaskExporter:
                 test_dir = task_dir / "tests"
                 test_dir.mkdir()
 
-                # TODO: Write verifier DockerFile
+                test_docker = self.test_docker_template.render(requirements=uv_req)
+
+                with open(test_dir / "Dockerfile", "w") as f:
+                    f.write(test_docker)
 
                 with open(test_dir / "data.py", "w") as f:
                     f.write(task.test_script)
 
-                with open(test_dir / "assessor.py", "w") as f:
+                with open(test_dir / "verifier.py", "w") as f:
                     f.write(task.assessment_script)
+
+                test_script = self.test_script_template.render(requirements=uv_req)
+
+                with open(test_dir / "test.sh", "w") as f:
+                    f.write(test_script)
 
                 logger.info(f"Exported task {task.name} to {task_dir}")
                 set_task_status(self.db, task.task_id, TaskStatus.EXPORTED)

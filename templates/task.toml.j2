@@ -1,0 +1,46 @@
+schema_version = "1.4"
+
+[task]
+name = "{{ org_name }}{{ task_name }}"
+version = "1.0.0"
+description = {{ description }}
+authors = []
+keywords = [{{ keywords | join(', ') }}]
+
+[metadata]
+difficulty_explanation = {{ difficulty_explanation }}
+category = "machine-learning"
+
+[verifier]
+environment_mode = "separate"
+timeout_sec = 120.0
+user = "root"
+
+[agent]
+timeout_sec = 120.0
+user = "agent"
+
+[environment]
+network_mode = "no-network"  # baseline; defaults to "public" when omitted
+build_timeout_sec = 600.0
+os = "linux"
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+gpu_types = ["H100", "A100"]
+
+[verifier.environment]
+cpus = 2
+memory_mb = 1024
+
+[[environment.mcp_servers]]
+name = "mcp-server"
+transport = "streamable-http"
+url = "http://mcp-server:8000/mcp"
+
+[environment.healthcheck]
+command = "curl -f http://localhost:8080/health"
+interval_sec = 5.0
+timeout_sec = 30.0
+retries = 3
