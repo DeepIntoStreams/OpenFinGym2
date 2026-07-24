@@ -13,7 +13,7 @@ from open_fin_gym.pipeline.db.tables import (
     Chunk,
     Paper,
     TaskCandidate,
-    TaskStatus,
+    TaskCandidateStatus,
     TestInputDatasetCandidate,
     TestOutputDatasetCandidate,
     TestTargetDatasetCandidate,
@@ -107,7 +107,7 @@ class TaskExtractor:
                     paper_id=paper.paper_id,
                     task_name=task_summary.task_name,
                     description=task_summary.task_description,
-                    status=TaskStatus.NEW,
+                    status=TaskCandidateStatus.NEW,
                 )
 
                 training_input_data = unpack_datasets(

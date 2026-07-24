@@ -109,7 +109,7 @@ class Chunk(Base):
     text = Column(String)
 
 
-class TaskStatus(StrEnum):
+class TaskCandidateStatus(StrEnum):
     NEW = "new"
     PROCESSED = "processed"
     FAILED = "failed"
@@ -121,7 +121,7 @@ class TaskCandidate(Base):
     scope_id = Column(String, index=True)
     paper_id = Column(String, index=True)
     new = Column(Boolean, default=True)
-    status = Column(Enum(TaskStatus), index=True)
+    status = Column(Enum(TaskCandidateStatus), index=True)
     task_name = Column(String)
     description = Column(String)
     training_inputs: Mapped[List["TrainInputDatasetCandidate"]] = relationship(
@@ -185,10 +185,18 @@ class MetricCandidate(Base):
     input_datasets = Column(JSON)
 
 
+class TaskStatus(StrEnum):
+    NEW = "new"
+    EXPORT_FAILED = "export_failed"
+    EXPORTED = "exported"
+
+
 class Task(Base):
     __tablename__ = "task"
     task_id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String)
     task_candidate_id = Column(Integer, index=True)
+    status = Column(Enum(TaskStatus))
     train_script = Column(String)
     test_script = Column(String)
     assessment_script = Column(String)

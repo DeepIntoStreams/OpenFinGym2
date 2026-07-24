@@ -7,7 +7,12 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from open_fin_gym.pipeline.config import Scope
-from open_fin_gym.pipeline.db.tables import Task, TaskCandidate, TaskStatus
+from open_fin_gym.pipeline.db.tables import (
+    Task,
+    TaskCandidate,
+    TaskCandidateStatus,
+    TaskStatus,
+)
 from open_fin_gym.pipeline.db.utils import set_task_candidate_status
 
 from .config import TaskGenerationConfig
@@ -53,7 +58,7 @@ class TaskGenerator:
         with Session(self.db) as session:
             stmt = select(TaskCandidate).where(
                 TaskCandidate.scope_id == scope.id,
-                TaskCandidate.status == TaskStatus.NEW,
+                TaskCandidate.status == TaskCandidateStatus.NEW,
             )
             tasks: list[TaskCandidate] = session.execute(stmt).scalars().all()
             task_specs = [
@@ -113,6 +118,8 @@ class TaskGenerator:
 
                 new_task = Task(
                     task_candidate_id=task_spec.id,
+                    name=task_spec.task_name,
+                    status=TaskStatus.NEW,
                     train_script=dataset_scripts.training_script,
                     test_script=dataset_scripts.testing_script,
                     assessment_script=assessment_script.assessment_script,
@@ -124,10 +131,14 @@ class TaskGenerator:
                     session.add(new_task)
                     session.commit()
 
-                set_task_candidate_status(self.db, task_spec.id, TaskStatus.PROCESSED)
+                set_task_candidate_status(
+                    self.db, task_spec.id, TaskCandidateStatus.PROCESSED
+                )
 
             except Exception as e:
-                set_task_candidate_status(self.db, task_spec.id, TaskStatus.FAILED)
+                set_task_candidate_status(
+                    self.db, task_spec.id, TaskCandidateStatus.FAILED
+                )
                 logger.error(
                     f"Task generation failed for task {task_spec.task_name} - {e}"
                 )

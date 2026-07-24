@@ -1,7 +1,14 @@
 from sqlalchemy import Engine, update
 from sqlalchemy.orm import Session
 
-from .tables import Paper, PaperStatus, TaskCandidate, TaskStatus
+from .tables import (
+    Paper,
+    PaperStatus,
+    Task,
+    TaskCandidate,
+    TaskCandidateStatus,
+    TaskStatus,
+)
 
 
 def set_paper_status(db: Engine, paper: Paper, status: PaperStatus, **kwargs) -> None:
@@ -24,13 +31,24 @@ def set_paper_status(db: Engine, paper: Paper, status: PaperStatus, **kwargs) ->
 
 
 def set_task_candidate_status(
-    db: Engine, task_id: int, status: TaskStatus, **kwargs
+    db: Engine, task_id: int, status: TaskCandidateStatus, **kwargs
 ) -> None:
     with Session(db) as session:
         stmt = (
             update(TaskCandidate)
             .values({"status": status, **kwargs})
             .where(TaskCandidate.task_id == task_id)
+        )
+        session.execute(stmt)
+        session.commit()
+
+
+def set_task_status(db: Engine, task_id: int, status: TaskStatus, **kwargs) -> None:
+    with Session(db) as session:
+        stmt = (
+            update(Task)
+            .values({"status": status, **kwargs})
+            .where(Task.task_id == task_id)
         )
         session.execute(stmt)
         session.commit()
