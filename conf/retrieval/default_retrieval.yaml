@@ -3,6 +3,6 @@
 # arxiv.org/robots.txt disallows /e-print, whereas /html and /pdf are allowed.
 source_preference: [ html, pdf ]
 arxiv_html_url: https://arxiv.org/html/{id}
-request_interval_sec: 3.0
+request_interval_sec: 15.0
 timeout_sec: 30.0
 user_agent: open-fin-gym/0.1 (https://github.com/DeepIntoStreams/OpenFinGym2)
