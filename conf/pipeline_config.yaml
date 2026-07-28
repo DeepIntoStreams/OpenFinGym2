@@ -3,6 +3,7 @@ mlflow:
   experiment_name: task-extraction-pipeline
 defaults:
   - scraping: default_scraper
+  - retrieval: default_retrieval
   - judge: default_judge
   - task_extractor: default_task_extractor
   - task_generator: default_task_generator
