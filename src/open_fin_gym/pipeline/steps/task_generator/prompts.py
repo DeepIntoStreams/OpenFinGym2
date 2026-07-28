@@ -200,3 +200,20 @@ Your output will be assessed against the test target data (withheld) using the f
 {metrics}
 
 """
+
+
+def build_description_summary_prompt(description: str) -> str:
+    return f"""
+Write a short one paragraph summary of the following machine learning task:
+
+{description}
+"""
+
+
+def build_difficulty_explanation_prompt(description: str) -> str:
+    return f"""
+Write a short one paragraph assessment of the difficulty of the following
+machine learning task:
+
+{description}
+"""

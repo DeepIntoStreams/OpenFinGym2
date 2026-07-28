@@ -202,3 +202,5 @@ class Task(Base):
     assessment_script = Column(String)
     requirements = Column(JSON)
     instructions = Column(String)
+    short_description = Column(String)
+    difficulty_explanation = Column(String)

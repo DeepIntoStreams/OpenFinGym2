@@ -59,9 +59,9 @@ class TaskExporter:
                 task_config = self.task_meta_template.render(
                     org_name=self.task_meta.org_name,
                     task_name=task_id,
-                    description="",
+                    description=task.short_description,
                     keywords=[],
-                    difficulty_explanation="",
+                    difficulty_explanation=task.difficulty_explanation,
                 )
 
                 with open(task_dir / "task.toml", "w") as f:

@@ -21,6 +21,8 @@ from .prompts import (
     DatasetRetrieval,
     TaskSpecification,
     build_dataset_download_prompt,
+    build_description_summary_prompt,
+    build_difficulty_explanation_prompt,
     build_metric_prompt,
     build_task_markdown,
     convert_dataset,
@@ -83,6 +85,12 @@ class TaskGenerator:
         for task_spec in task_specs:
             dataset_prompt = build_dataset_download_prompt(task_spec)
             metric_prompt = build_metric_prompt(task_spec)
+            description_prompt = build_description_summary_prompt(
+                task_spec.task_description
+            )
+            difficulty_prompt = build_difficulty_explanation_prompt(
+                task_spec.task_description
+            )
 
             try:
                 dataset_scripts: DatasetRetrieval = self.llm.with_structured_output(
@@ -91,6 +99,9 @@ class TaskGenerator:
                 assessment_script: Assessment = self.llm.with_structured_output(
                     Assessment
                 ).invoke(metric_prompt)
+                short_description = self.llm.invoke(description_prompt).content
+                difficulty_explanation = self.llm.invoke(difficulty_prompt).content
+
                 requirements = list(
                     set(dataset_scripts.requirements).union(
                         set(assessment_script.requirements)
@@ -125,6 +136,8 @@ class TaskGenerator:
                     assessment_script=assessment_script.assessment_script,
                     requirements=requirements,
                     instructions=instructions,
+                    short_description=short_description,
+                    difficulty_explanation=difficulty_explanation,
                 )
 
                 with Session(self.db) as session:
