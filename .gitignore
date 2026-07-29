@@ -126,3 +126,4 @@ pyrightconfig.json
 # Default pipeline sqlite DB file
 pipeline.db
 mlruns.db
+/tasks

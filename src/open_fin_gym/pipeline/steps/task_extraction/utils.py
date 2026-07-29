@@ -10,7 +10,7 @@ from open_fin_gym.pipeline.db.tables import (
     TrainTargetDatasetCandidate,
 )
 
-from .prompts import Dataset
+from .prompts import AssessmentMetric, Dataset
 
 type DatasetType = (
     TrainInputDatasetCandidate
@@ -41,8 +41,10 @@ def unpack_datasets(
     ]
 
 
-def unpack_metrics(task_candidate: TaskCandidate) -> list[MetricCandidate]:
+def unpack_metrics(
+    task_candidate: TaskCandidate, metrics: list[AssessmentMetric]
+) -> list[MetricCandidate]:
     return [
         MetricCandidate(**x.model_dump(), task_candidate=task_candidate)
-        for x in task_candidate.assessment_metrics
+        for x in metrics
     ]

@@ -1,0 +1,4 @@
+export_path: ./tasks/
+templates_path: ./templates/
+task_config:
+  org_name: org_name

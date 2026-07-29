@@ -1,0 +1,9 @@
+FROM ghcr.io/astral-sh/uv:trixie-slim
+
+ENV UV_PROJECT_ENVIRONMENT="/usr/local"
+
+WORKDIR /app
+COPY data.py data.py
+COPY verifier.py verifier.py
+COPY test.sh test.sh
+RUN uv run {{ requirements }} data.py

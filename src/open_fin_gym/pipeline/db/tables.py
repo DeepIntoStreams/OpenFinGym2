@@ -1,4 +1,4 @@
-from enum import Enum as EnumType
+from enum import StrEnum
 from typing import Any, List
 
 from pydantic import BaseModel, Field
@@ -24,12 +24,12 @@ from sqlalchemy.orm import (
 Base = declarative_base()
 
 
-class TaskType(str, EnumType):
+class TaskType(StrEnum):
     FORECASTING = "forecasting"
     GENERATION = "generation"
 
 
-class JudgeLabel(str, EnumType):
+class JudgeLabel(StrEnum):
     ACCEPTED = "accepted"
     REJECTED = "rejected"
 
@@ -45,7 +45,7 @@ class JudgeDecision(BaseModel):
     raw_response: dict[str, Any] = Field(default_factory=dict)
 
 
-class PaperStatus(str, EnumType):
+class PaperStatus(StrEnum):
     SCRAPED = "scraped"
     EXTRACTED = "extracted"
     ERRORED = "errored"
@@ -55,12 +55,12 @@ class PaperStatus(str, EnumType):
     TASK_EXTRACTION_FAILED = "task_extraction_failed"
 
 
-class SourceName(str, EnumType):
+class SourceName(StrEnum):
     ARXIV = "arxiv"
     MANUAL = "manual"
 
 
-class RejectionReason(str, EnumType):
+class RejectionReason(StrEnum):
     NoPaperURL = "no_paper_url"
     RetrievalError = "retrieval_error"
     PreFiltered = "pre_filtered"
@@ -109,12 +109,19 @@ class Chunk(Base):
     text = Column(String)
 
 
+class TaskCandidateStatus(StrEnum):
+    NEW = "new"
+    PROCESSED = "processed"
+    FAILED = "failed"
+
+
 class TaskCandidate(Base):
     __tablename__ = "task_candidates"
     task_id = Column(Integer, primary_key=True, autoincrement=True)
     scope_id = Column(String, index=True)
     paper_id = Column(String, index=True)
     new = Column(Boolean, default=True)
+    status = Column(Enum(TaskCandidateStatus), index=True)
     task_name = Column(String)
     description = Column(String)
     training_inputs: Mapped[List["TrainInputDatasetCandidate"]] = relationship(
@@ -176,3 +183,24 @@ class MetricCandidate(Base):
     name = Column(String)
     description = Column(String)
     input_datasets = Column(JSON)
+
+
+class TaskStatus(StrEnum):
+    NEW = "new"
+    EXPORT_FAILED = "export_failed"
+    EXPORTED = "exported"
+
+
+class Task(Base):
+    __tablename__ = "task"
+    task_id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String)
+    task_candidate_id = Column(Integer, index=True)
+    status = Column(Enum(TaskStatus))
+    train_script = Column(String)
+    test_script = Column(String)
+    assessment_script = Column(String)
+    requirements = Column(JSON)
+    instructions = Column(String)
+    short_description = Column(String)
+    difficulty_explanation = Column(String)
