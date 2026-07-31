@@ -2,6 +2,7 @@ import logging
 from pathlib import Path
 
 from hydra.utils import instantiate
+from jinja2 import Environment, FileSystemLoader
 from langchain_core.language_models import BaseChatModel
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
@@ -24,7 +25,6 @@ from .prompts import (
     build_description_summary_prompt,
     build_difficulty_explanation_prompt,
     build_metric_prompt,
-    build_task_markdown,
     convert_dataset,
     convert_metric,
 )
@@ -36,6 +36,10 @@ class TaskGenerator:
     def __init__(self, db: Engine, cfg: TaskGenerationConfig) -> None:
         self.db = db
         self.llm: BaseChatModel = instantiate(cfg.llm)
+        self.template_env = Environment(loader=FileSystemLoader(cfg.templates_path))
+        self.instructions_template = self.template_env.get_template(
+            "instructions.md.j2"
+        )
         assert isinstance(self.llm, BaseChatModel)
 
     def run(self, output_path: Path, scopes: list[Scope]) -> None:
@@ -107,7 +111,14 @@ class TaskGenerator:
                         set(assessment_script.requirements)
                     )
                 )
-                instructions = build_task_markdown(task_spec)
+                instructions = self.instructions_template.render(
+                    task_description=task_spec.task_description,
+                    training_inputs=task_spec.training_inputs,
+                    training_targets=task_spec.training_targets,
+                    test_inputs=task_spec.test_inputs,
+                    test_outputs=task_spec.test_outputs,
+                    metrics=task_spec.metrics,
+                )
 
                 task_path = scripts_path / f"{task_spec.task_name}"
                 task_path.mkdir(exist_ok=True)

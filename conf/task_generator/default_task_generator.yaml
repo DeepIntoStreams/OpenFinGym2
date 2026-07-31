@@ -2,3 +2,4 @@ llm:
   _target_: langchain_openai.chat_models.ChatOpenAI
   model: gpt-4.1-mini
   temperature: 0.5
+templates_path: ./templates/

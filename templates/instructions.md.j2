@@ -1,0 +1,69 @@
+# Machine Learning Task
+
+## Task Description
+
+{{ task_description }}
+
+## Training Data
+
+You are provided with the following training datasets
+
+### Training Inputs
+
+{% for x in training_inputs %}
+##### {{ x.name }}
+
+{{ x.description }}
+
+File path: `{{ x.filename }}`
+{% endfor %}
+
+### Training targets
+
+{% for x in training_targets %}
+##### {{ x.name }}
+
+{{ x.description }}
+
+File path: `{{ x.filename }}`
+{% endfor %}
+
+## Assessment
+
+### Test Inputs
+
+{% for x in test_inputs %}
+##### {{ x.name }}
+
+{{ x.description }}
+
+File path: `{{ x.filename }}`
+{% endfor %}
+
+## Assessment Process
+
+Using the training inputs and targets to design and train your model, you should then
+produced the expected test-output datasets conditioned on the test-inputs. You should
+write your results to the specified file(s) in the folder `/logs/artifacts/`.
+
+### Expected Outputs
+
+Your solution should produce the following outputs
+
+{% for x in test_outputs %}
+##### {{ x.name }}
+
+{{ x.description }}
+
+File path: `{{ x.filename }}`
+{% endfor %}
+
+### Assessment Metrics
+
+Your output will be assessed against the test target data (withheld) using the following metrics:
+
+{% for x in metrics %}
+##### {{ x.name }}
+
+{{ x.description }}
+{% endfor %}

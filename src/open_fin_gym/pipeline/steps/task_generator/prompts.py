@@ -112,7 +112,7 @@ a Python script that assess the test_output produced by the user against the
 target test dataset. The script should retrieve the users output, and the test
 target data, and apply the set of assessment metrics. It should then save the
 results as a json file containing a dictionary of individual metric results. The
-results file should be named `reward.json`.
+results should be written to `/logs/verifier/reward.json`.
 
 You should also produce a list of Python requirements required by the assessment script.
 
@@ -126,79 +126,6 @@ Test targets/ground-truth:
     {test_targets}
 Assessment metrics:
     {metrics}
-"""
-
-
-def build_task_markdown(task_spec: TaskSpecification) -> str:
-    training_inputs = "\n\n".join(
-        [
-            f"#### {x.name}\n\n{x.description}\n\nFile path: `{x.filename}`"
-            for x in task_spec.training_inputs
-        ]
-    )
-    training_targets = "\n\n".join(
-        [
-            f"#### {x.name}\n\n{x.description}\n\nFile path: `{x.filename}`"
-            for x in task_spec.training_targets
-        ]
-    )
-    test_inputs = "\n\n".join(
-        [
-            f"#### {x.name}\n\n{x.description}\n\nFile path: `{x.filename}`"
-            for x in task_spec.test_inputs
-        ]
-    )
-    outputs = "\n\n".join(
-        [
-            f"#### {x.name}\n\n{x.description}\n\nFile path: `{x.filename}`"
-            for x in task_spec.test_outputs
-        ]
-    )
-    metrics = "\n\n".join(
-        [f"#### {x.name}\n\n{x.description}" for x in task_spec.metrics]
-    )
-
-    return f"""
-# Machine Learning Task
-
-## Task Description
-
-{task_spec.task_description}
-
-## Training Data
-
-You are provided with the following training datasets
-
-### Training Inputs
-
-{training_inputs}
-
-### Training targets
-
-{training_targets}
-
-## Assessment
-
-### Test Inputs
-
-{test_inputs}
-
-### Expected Outputs
-
-{outputs}
-
-### Assessment Process
-
-Using the training inputs and targets to design and train your model, you should then
-produced the expected test-output datasets conditioned on the test-inputs. You should
-write your results to specified file.
-
-### Assessment Metrics
-
-Your output will be assessed against the test target data (withheld) using the following metrics:
-
-{metrics}
-
 """
 
 
