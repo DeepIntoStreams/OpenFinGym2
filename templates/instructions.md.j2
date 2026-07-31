@@ -2,7 +2,7 @@
 
 ## Task Description
 
-{{ task_description }}
+{{ task_description | wordwrap(80) }}
 
 ## Training Data
 
@@ -13,7 +13,7 @@ You are provided with the following training datasets
 {% for x in training_inputs %}
 ##### {{ x.name }}
 
-{{ x.description }}
+{{ x.description | wordwrap(80) }}
 
 File path: `{{ x.filename }}`
 {% endfor %}
@@ -23,7 +23,7 @@ File path: `{{ x.filename }}`
 {% for x in training_targets %}
 ##### {{ x.name }}
 
-{{ x.description }}
+{{ x.description | wordwrap(80) }}
 
 File path: `{{ x.filename }}`
 {% endfor %}
@@ -35,7 +35,7 @@ File path: `{{ x.filename }}`
 {% for x in test_inputs %}
 ##### {{ x.name }}
 
-{{ x.description }}
+{{ x.description | wordwrap(80) }}
 
 File path: `{{ x.filename }}`
 {% endfor %}
@@ -53,7 +53,7 @@ Your solution should produce the following outputs
 {% for x in test_outputs %}
 ##### {{ x.name }}
 
-{{ x.description }}
+{{ x.description | wordwrap(80) }}
 
 File path: `{{ x.filename }}`
 {% endfor %}
@@ -65,5 +65,5 @@ Your output will be assessed against the test target data (withheld) using the f
 {% for x in metrics %}
 ##### {{ x.name }}
 
-{{ x.description }}
+{{ x.description | wordwrap(80) }}
 {% endfor %}
