@@ -1,3 +1,4 @@
 #!/bin/bash
 
-uv run {{ requirements }} verifier.py
+cp -a /logs/artifacts/. /app/
+uv run {{ requirements }} /app/verifier.py
