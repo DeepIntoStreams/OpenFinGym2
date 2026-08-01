@@ -3,8 +3,7 @@ import re
 from lxml import html
 from lxml.html import HtmlElement
 
-# LaTeXML titles map onto the heading levels the chunker splits on. Run-in titles
-# (paragraph, theorem, proof) are rendered as h5/h6 but are body text, not sections.
+# Run-in titles (paragraph, theorem, proof) are h5/h6 body text, not sections
 HEADING_LEVELS = {
     "ltx_title_document": "#",
     "ltx_title_abstract": "##",
@@ -21,10 +20,7 @@ WHITESPACE = re.compile(r"\s+")
 
 def arxiv_html_to_markdown(source: bytes) -> str:
     """
-    Convert an arXiv LaTeXML-rendered HTML paper into markdown
-
-    Tables and maths are recovered from the rendered LaTeX rather than from page
-    layout, so numeric result tables and equations survive intact.
+    Convert an arXiv LaTeXML-rendered paper into markdown
 
     Args:
         source: Raw HTML page body
@@ -72,11 +68,7 @@ def arxiv_html_to_markdown(source: bytes) -> str:
 
 def _tables(root: HtmlElement) -> list[HtmlElement]:
     """
-    Find the outermost LaTeXML tabulars
-
-    LaTeXML emits a tabular as either a `table` or, when it appears inside an
-    inline context such as `resizebox`, a `span`. Nested tabulars are skipped as
-    the enclosing one already renders them.
+    Find the outermost tabulars, which LaTeXML emits as a `table` or a `span`
 
     Args:
         root: Document root
@@ -90,20 +82,20 @@ def _tables(root: HtmlElement) -> list[HtmlElement]:
 
 def _table_to_markdown(table: HtmlElement) -> str:
     """
-    Render a LaTeXML tabular as a markdown table
+    Render a tabular as a markdown table, using its first row as the header
 
     Args:
         table: Tabular element
 
     Returns:
-        Markdown table, using the first row as the header
+        Markdown table
     """
     rows = []
     for row in table.find_class("ltx_tr"):
         cells = []
         for cell in row.find_class("ltx_td"):
             cells.append(_text(cell).replace("|", "\\|"))
-            # A spanning cell occupies the columns it covers so the grid stays square
+            # Pad spanned columns so the grid stays square
             cells.extend([""] * (int(cell.get("colspan", 1)) - 1))
         rows.append(cells)
 
@@ -117,14 +109,6 @@ def _table_to_markdown(table: HtmlElement) -> str:
 
 
 def _replace_with_text(element: HtmlElement, text: str, tag: str = "span") -> None:
-    """
-    Replace an element's subtree with a text node, preserving its position
-
-    Args:
-        element: Element to collapse
-        text: Replacement text
-        tag: Tag to relabel the element as
-    """
     for child in list(element):
         element.remove(child)
     element.tag = tag
@@ -132,28 +116,10 @@ def _replace_with_text(element: HtmlElement, text: str, tag: str = "span") -> No
 
 
 def _title_class(element: HtmlElement) -> str | None:
-    """
-    Get the LaTeXML title class of an element, e.g. 'ltx_title_section'
-
-    Args:
-        element: Candidate heading element
-
-    Returns:
-        Title class, or None if the element is not a LaTeXML title
-    """
     return next(
         (x for x in element.get("class", "").split() if x in HEADING_LEVELS), None
     )
 
 
 def _text(element: HtmlElement) -> str:
-    """
-    Get the whitespace-normalised text of an element
-
-    Args:
-        element: Element to read
-
-    Returns:
-        Collapsed text content
-    """
     return WHITESPACE.sub(" ", element.text_content()).strip()

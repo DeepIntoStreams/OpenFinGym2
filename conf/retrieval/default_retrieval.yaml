@@ -1,6 +1,4 @@
-# arXiv serves a LaTeXML rendering of most submissions, which preserves the tables,
-# equations and links that PDF text extraction loses. Source tarballs are not used:
-# arxiv.org/robots.txt disallows /e-print, whereas /html and /pdf are allowed.
+# Source tarballs are not an option: robots.txt disallows /e-print, unlike /html and /pdf
 source_preference: [ html, pdf ]
 arxiv_html_url: https://arxiv.org/html/{id}
 request_interval_sec: 15.0

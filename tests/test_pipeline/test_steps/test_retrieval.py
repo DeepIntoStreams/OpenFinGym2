@@ -8,8 +8,7 @@ from open_fin_gym.pipeline.steps.retrieval.latexml import (
 )
 from open_fin_gym.pipeline.steps.retrieval.pipeline import PaperRetrieval
 
-# Mirrors how LaTeXML renders a paper: maths carries its LaTeX in `alttext`, and a
-# tabular is emitted either as a `table` or, inside an inline context, as a `span`.
+# Mirrors LaTeXML: maths carries `alttext`, and a tabular is a `table` or a `span`
 ARXIV_HTML = b"""
 <html><body><article>
 <h1 class="ltx_title ltx_title_document">A Paper</h1>
@@ -62,7 +61,7 @@ def test_html_headers_drive_chunking(
     assert "a paper -- abstract" in headers
     assert "a paper -- 1 data" in headers
     assert "a paper -- 1 data -- 1.1 splits" in headers
-    # Run-in paragraph titles are body text and must not open a chunk
+    # Run-in titles are body text and must not open a chunk
     assert not any("run-in" in x for x in headers)
 
 
@@ -72,7 +71,7 @@ def test_html_preserves_maths_tables_and_links() -> None:
     assert "$r_{t+1}$" in markdown
     assert "ignored()" not in markdown
 
-    # Both tabular renderings survive as markdown tables, each emitted exactly once
+    # Both tabular renderings survive, each emitted exactly once
     assert "| Model | RMSE |" in markdown
     assert markdown.count("| LSTM | 0.041 |") == 1
     assert markdown.count("| 800 | 200 |") == 1

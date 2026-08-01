@@ -44,7 +44,7 @@ class PaperRetrieval:
         self.splitter = MarkdownHeaderTextSplitter(
             self.headers_to_split, strip_headers=False
         )
-        # One session keeps the connection to the source host alive across papers
+        # One session keeps the connection alive across papers
         self.session = requests.Session()
         self.session.headers["User-Agent"] = cfg.user_agent
         self.next_request_at = 0.0
@@ -66,7 +66,7 @@ class PaperRetrieval:
 
         for paper in papers:
             if paper.paper_id in chunked:
-                # Paper has already been chunked, potentially by a different scope
+                # Already chunked, potentially by a different scope
                 set_paper_status(self.db, paper, PaperStatus.EXTRACTED)
                 continue
 
@@ -103,7 +103,7 @@ class PaperRetrieval:
 
     def retrieve_markdown(self, paper: Paper) -> tuple[str, SourceFormat]:
         """
-        Retrieve a paper as markdown, trying each configured format in preference order
+        Retrieve a paper as markdown, trying each configured format in turn
 
         Args:
             paper: Paper record
@@ -144,7 +144,7 @@ class PaperRetrieval:
         if source_format == SourceFormat.PDF:
             return paper.pdf_url
 
-        # arXiv renders its LaTeX submissions to HTML, addressed by versioned id
+        # arXiv renders LaTeX submissions to HTML, addressed by versioned id
         if paper.source != SourceName.ARXIV or not paper.arxiv_url:
             return None
 
@@ -152,11 +152,7 @@ class PaperRetrieval:
 
     def get(self, url: str) -> bytes | None:
         """
-        Fetch a URL, rate limited across the stage
-
-        The interval runs from the previous request rather than from its completion,
-        so time spent parsing the last response counts towards it instead of adding
-        to it.
+        Fetch a URL, rate limited from the previous request rather than its completion
 
         Args:
             url: URL to fetch
