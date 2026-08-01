@@ -18,7 +18,6 @@ semantic_scholar:
   api_url: https://api.semanticscholar.org
   retry: true
   request_delay_secs: 1
-max_papers_per_scope: 5
-max_accepts_per_scope: 2
+max_papers_per_scope: 12
 since: 2026-01-01
 until: 2026-01-30
