@@ -1,8 +1,9 @@
 arxiv:
   page_size: 100
-  sort_by: SubmittedDate
+  # The date window already bounds recency, so rank within it by relevance
+  sort_by: Relevance
   request_interval_sec: 3.0
-  num_retries: 3
+  num_retries: 5
 crossref:
   enabled: false
   base_url: https://api.crossref.org
@@ -17,7 +18,8 @@ semantic_scholar:
   timeout_sec: 30
   api_url: https://api.semanticscholar.org
   retry: true
-  request_delay_secs: 1
+  request_delay_secs: 3
 max_papers_per_scope: 12
-since: 2026-01-01
+# A 30-day window starves the narrower scopes; 90 days clears the budget for all of them
+since: 2025-11-01
 until: 2026-01-30
