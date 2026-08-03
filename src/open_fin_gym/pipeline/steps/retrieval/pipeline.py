@@ -110,9 +110,6 @@ class PaperRetrieval:
 
         Returns:
             Paper markdown and the format it was derived from
-
-        Raises:
-            RuntimeError: If the paper is unavailable in every configured format
         """
         for source_format in map(SourceFormat, self.cfg.source_preference):
             url = self.source_url(paper, source_format)
