@@ -156,7 +156,7 @@ class Judge:
                 chunks: list[Chunk] = session.execute(stmt).scalars().all()
 
             chunks = filter_chunks(chunks)
-            excerpt = "/n/n".join([x.text for x in chunks])
+            excerpt = "\n\n".join([x.text for x in chunks])
             prompt = build_sift_judge_prompt(scope, paper, excerpt=excerpt)
             llm = self.llm.with_structured_output(SiftJudgement)
 
