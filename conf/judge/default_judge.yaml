@@ -9,4 +9,5 @@ threshold_default: 7.0
 llm:
   _target_: langchain_openai.chat_models.ChatOpenAI
   model: gpt-4.1-mini
-  temperature: 0.5
+  # The judge is a scoring gate, so keep it deterministic across runs
+  temperature: 0
