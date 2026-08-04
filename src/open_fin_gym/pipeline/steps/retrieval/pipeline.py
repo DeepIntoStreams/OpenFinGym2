@@ -164,8 +164,12 @@ class PaperRetrieval:
             response = self.session.get(url, timeout=self.cfg.timeout_sec)
             response.raise_for_status()
         except requests.RequestException as e:
-            # Papers with no HTML rendering 404 here and fall to the next format
-            logger.debug(f"Could not retrieve {url}: {e}")
+            # A paper with no HTML rendering 404s here and falls to the next format,
+            # so only an unexpected failure is worth drawing attention to
+            if e.response is not None and e.response.status_code == 404:
+                logger.debug(f"Not available at {url}")
+            else:
+                logger.warning(f"Could not retrieve {url}: {e}")
             return None
 
         return response.content
