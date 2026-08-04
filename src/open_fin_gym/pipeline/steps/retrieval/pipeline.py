@@ -44,9 +44,7 @@ class PaperRetrieval:
         self.splitter = MarkdownHeaderTextSplitter(
             self.headers_to_split, strip_headers=False
         )
-        # One session keeps the connection alive across papers
-        self.session = requests.Session()
-        self.session.headers["User-Agent"] = cfg.user_agent
+        self.headers = {"User-Agent": cfg.user_agent}
         self.next_request_at = 0.0
 
     def download_and_chunk_papers(self, output_path: Path) -> None:
@@ -161,7 +159,9 @@ class PaperRetrieval:
         self.next_request_at = time.monotonic() + self.cfg.request_interval_sec
 
         try:
-            response = self.session.get(url, timeout=self.cfg.timeout_sec)
+            response = requests.get(
+                url, headers=self.headers, timeout=self.cfg.timeout_sec
+            )
             response.raise_for_status()
         except requests.RequestException as e:
             # A paper with no HTML rendering 404s here and falls to the next format,
