@@ -60,6 +60,11 @@ class SourceName(StrEnum):
     MANUAL = "manual"
 
 
+class SourceFormat(StrEnum):
+    HTML = "html"
+    PDF = "pdf"
+
+
 class RejectionReason(StrEnum):
     NoPaperURL = "no_paper_url"
     RetrievalError = "retrieval_error"
@@ -107,6 +112,7 @@ class Chunk(Base):
     chunk_index = Column(Integer, index=True)
     header = Column(String)
     text = Column(String)
+    source_format = Column(Enum(SourceFormat))
 
 
 class TaskCandidateStatus(StrEnum):

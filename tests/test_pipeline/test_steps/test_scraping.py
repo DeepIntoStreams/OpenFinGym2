@@ -22,7 +22,6 @@ def dummy_scraping_config() -> ScrapingConfig:
         semantic_scholar=SemanticScholarConfig(),
         crossref=CrossrefConfig(),
         max_papers_per_scope=0,
-        max_accepts_per_scope=0,
         since="",
         until="",
     )
