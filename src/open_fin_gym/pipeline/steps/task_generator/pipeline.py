@@ -71,6 +71,7 @@ class TaskGenerator:
                 TaskSpecification(
                     id=task.task_id,
                     task_name=task.task_name,
+                    task_type=task.task_type,
                     task_description=task.description,
                     training_inputs=[convert_dataset(x) for x in task.training_inputs],
                     training_targets=[

@@ -3,6 +3,7 @@ from pydantic import BaseModel, Field
 from open_fin_gym.pipeline.db.tables import (
     BaseDatasetCandidate,
     MetricCandidate,
+    TaskType,
 )
 from open_fin_gym.pipeline.steps.task_extraction.prompts import (
     AssessmentMetric,
@@ -13,6 +14,7 @@ from open_fin_gym.pipeline.steps.task_extraction.prompts import (
 class TaskSpecification(BaseModel):
     id: int = Field(description="Task id")
     task_name: str = Field(description="Name id assigned to the task")
+    task_type: TaskType = Field(description="Whether outputs are predicted or sampled")
     task_description: str = Field(
         description="Description of the ML task including the data and how it is assessed"
     )
@@ -64,6 +66,10 @@ def join_datasets(datasets: list[Dataset]) -> str:
     return "\n\t".join([f"- {x.model_dump()}" for x in datasets])
 
 
+def join_metrics(metrics: list[AssessmentMetric]) -> str:
+    return "\n\t".join([f"- {x.model_dump()}" for x in metrics])
+
+
 def build_dataset_download_prompt(task_spec: TaskSpecification) -> str:
 
     training_inputs = join_datasets(task_spec.training_inputs)
@@ -105,7 +111,14 @@ Test target datasets:
 def build_metric_prompt(task_spec: TaskSpecification) -> str:
     test_outputs = join_datasets(task_spec.test_outputs)
     test_targets = join_datasets(task_spec.test_targets)
-    metrics = join_datasets(task_spec.metrics)
+    metrics = join_metrics(task_spec.metrics)
+    comparison = (
+        "The user samples their output rather than predicting it row by row, so the "
+        "metrics compare the two datasets as distributions and must not assume the rows "
+        "are paired."
+        if task_spec.task_type == TaskType.GENERATION
+        else "Each row of the user output corresponds to the same row of the test target."
+    )
     return f"""
 You are given the specification of a machine learning task. You should write
 a Python script that assess the test_output produced by the user against the
@@ -113,6 +126,8 @@ target test dataset. The script should retrieve the users output, and the test
 target data, and apply the set of assessment metrics. It should then save the
 results as a json file containing a dictionary of individual metric results. The
 results should be written to `/logs/verifier/reward.json`.
+
+{comparison}
 
 You should also produce a list of Python requirements required by the assessment script.
 
