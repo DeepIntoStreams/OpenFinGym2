@@ -1,4 +1,5 @@
 import logging
+import re
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
@@ -52,13 +53,12 @@ class TaskExporter:
 
         for task in tasks:
             try:
-                task_id = task.name.strip().lower().replace(" ", "_")
-                task_dir = self.export_path / task_id
-                task_dir.mkdir()
+                task_dir = self.export_path / slugify(task.name)
+                task_dir.mkdir(parents=True, exist_ok=True)
 
                 task_config = self.task_meta_template.render(
                     org_name=self.task_meta.org_name,
-                    task_name=task_id,
+                    task_name=task_dir.name,
                     description=task.short_description,
                     keywords=[],
                     difficulty_explanation=task.difficulty_explanation,
@@ -107,3 +107,16 @@ class TaskExporter:
             except Exception as e:
                 logger.error(f"Export of task {task.name} failed - {e}")
                 set_task_status(self.db, task.task_id, TaskStatus.EXPORT_FAILED)
+
+
+def slugify(name: str) -> str:
+    """
+    Convert a task name into a directory name
+
+    Args:
+        name: Task name, which the LLM is free to choose
+
+    Returns:
+        Name reduced to lowercase words joined by underscores
+    """
+    return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_") or "task"
