@@ -73,7 +73,7 @@ def spec(task_type: TaskType) -> TaskSpecification:
     "task_type,expected",
     [
         (TaskType.GENERATION, "as distributions"),
-        (TaskType.FORECASTING, "corresponds to the same row"),
+        (TaskType.FORECASTING, "matches the same row"),
     ],
 )
 def test_metric_prompt_matches_task_type(task_type: TaskType, expected: str) -> None:

@@ -62,20 +62,16 @@ def convert_metric(d: MetricCandidate) -> AssessmentMetric:
     )
 
 
-def join_datasets(datasets: list[Dataset]) -> str:
-    return "\n\t".join([f"- {x.model_dump()}" for x in datasets])
-
-
-def join_metrics(metrics: list[AssessmentMetric]) -> str:
-    return "\n\t".join([f"- {x.model_dump()}" for x in metrics])
+def join_specs(specs: list[Dataset] | list[AssessmentMetric]) -> str:
+    return "\n\t".join([f"- {x.model_dump()}" for x in specs])
 
 
 def build_dataset_download_prompt(task_spec: TaskSpecification) -> str:
 
-    training_inputs = join_datasets(task_spec.training_inputs)
-    training_targets = join_datasets(task_spec.training_targets)
-    test_inputs = join_datasets(task_spec.test_inputs)
-    test_targets = join_datasets(task_spec.test_targets)
+    training_inputs = join_specs(task_spec.training_inputs)
+    training_targets = join_specs(task_spec.training_targets)
+    test_inputs = join_specs(task_spec.test_inputs)
+    test_targets = join_specs(task_spec.test_targets)
 
     return f"""
 You are given the specification of a machine learning task. You should write
@@ -110,16 +106,18 @@ Test target datasets:
 
 
 def build_metric_prompt(task_spec: TaskSpecification) -> str:
-    test_outputs = join_datasets(task_spec.test_outputs)
-    test_targets = join_datasets(task_spec.test_targets)
-    metrics = join_metrics(task_spec.metrics)
-    comparison = (
-        "The user samples their output rather than predicting it row by row, so the "
-        "metrics compare the two datasets as distributions and must not assume the rows "
-        "are paired."
-        if task_spec.task_type == TaskType.GENERATION
-        else "Each row of the user output corresponds to the same row of the test target."
-    )
+    test_outputs = join_specs(task_spec.test_outputs)
+    test_targets = join_specs(task_spec.test_targets)
+    metrics = join_specs(task_spec.metrics)
+    if task_spec.task_type == TaskType.GENERATION:
+        comparison = (
+            "The user samples their output, so compare the two datasets as "
+            "distributions and do not assume the rows are paired."
+        )
+    else:
+        comparison = (
+            "Each row of the user output matches the same row of the test target."
+        )
     return f"""
 You are given the specification of a machine learning task. You should write
 a Python script that assess the test_output produced by the user against the
