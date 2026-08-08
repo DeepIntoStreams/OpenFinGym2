@@ -20,6 +20,12 @@ class TaskExporter:
         self.export_path = Path(cfg.export_path)
         self.export_path.mkdir(exist_ok=True)
         self.template_env = Environment(loader=FileSystemLoader(cfg.templates_path))
+
+        def strformat(v, fmt):
+            return fmt % v
+
+        self.template_env.filters["strformat"] = strformat
+
         self.task_meta_template = self.template_env.get_template("task.toml.j2")
         self.train_docker_template = self.template_env.get_template(
             "train.Dockerfile.j2"
@@ -73,8 +79,9 @@ class TaskExporter:
                 env_dir = task_dir / "environment"
                 env_dir.mkdir()
 
-                uv_req = " ".join([f"--with {x}" for x in task.requirements])
-                train_docker = self.train_docker_template.render(requirements=uv_req)
+                train_docker = self.train_docker_template.render(
+                    requirements=task.requirements
+                )
 
                 with open(env_dir / "Dockerfile", "w") as f:
                     f.write(train_docker)
@@ -85,7 +92,9 @@ class TaskExporter:
                 test_dir = task_dir / "tests"
                 test_dir.mkdir()
 
-                test_docker = self.test_docker_template.render(requirements=uv_req)
+                test_docker = self.test_docker_template.render(
+                    requirements=task.requirements
+                )
 
                 with open(test_dir / "Dockerfile", "w") as f:
                     f.write(test_docker)
@@ -96,7 +105,9 @@ class TaskExporter:
                 with open(test_dir / "verifier.py", "w") as f:
                     f.write(task.assessment_script)
 
-                test_script = self.test_script_template.render(requirements=uv_req)
+                test_script = self.test_script_template.render(
+                    requirements=task.requirements
+                )
 
                 with open(test_dir / "test.sh", "w") as f:
                     f.write(test_script)

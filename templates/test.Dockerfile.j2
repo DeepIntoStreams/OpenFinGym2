@@ -9,4 +9,4 @@ WORKDIR /app
 COPY data.py data.py
 COPY verifier.py verifier.py
 
-RUN uv run {{ requirements }} data.py
+RUN uv run {{ requirements | map("strformat", "--with %s") | join(" ") }} data.py

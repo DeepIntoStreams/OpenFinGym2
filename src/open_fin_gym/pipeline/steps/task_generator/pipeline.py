@@ -28,6 +28,7 @@ from .prompts import (
     convert_dataset,
     convert_metric,
 )
+from .utils import test_test_download_script, test_train_download_script
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,10 @@ class TaskGenerator:
         self.instructions_template = self.template_env.get_template(
             "instructions.md.j2"
         )
+        self.train_docker_template = self.template_env.get_template(
+            "train.Dockerfile.j2"
+        )
+        self.test_docker_template = self.template_env.get_template("test.Dockerfile.j2")
         assert isinstance(self.llm, BaseChatModel)
 
     def run(self, output_path: Path, scopes: list[Scope]) -> None:
@@ -122,6 +127,32 @@ class TaskGenerator:
 
                 task_path = scripts_path / f"{task_spec.task_name}"
                 task_path.mkdir(exist_ok=True)
+
+                # Test Dockerfiles build and data is retrieved
+                train_build_success, train_build_message = test_train_download_script(
+                    self.train_docker_template,
+                    dataset_scripts.training_script,
+                    requirements,
+                    [x.filename for x in task_spec.training_inputs]
+                    + [x.filename for x in task_spec.training_targets]
+                    + [x.filename for x in task_spec.test_inputs],
+                )
+                if not train_build_success:
+                    raise RuntimeError(
+                        f"Train DockerFile build failed - {train_build_message}"
+                    )
+
+                test_build_success, test_build_message = test_test_download_script(
+                    self.train_docker_template,
+                    dataset_scripts.testing_script,
+                    assessment_script.assessment_script,
+                    requirements,
+                    [x.filename for x in task_spec.test_targets],
+                )
+                if not test_build_success:
+                    raise RuntimeError(
+                        f"Test DockerFile build failed - {test_build_message}"
+                    )
 
                 with open(task_path / "train.py", "w") as f:
                     f.write(dataset_scripts.training_script)
