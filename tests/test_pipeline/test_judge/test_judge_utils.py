@@ -61,11 +61,11 @@ def test_sift_judgement_requires_data_availability_fields():
 def test_sift_judgement_accepts_valid_payload():
     judgement = SiftJudgement(
         evidence=Evidence(experiments="e", datasets="d", metrics="m"),
-        data_publicly_available=JudgeLabel.ACCEPTED,
+        data_publicly_available=True,
         data_availability_reasoning="reconstructible from yfinance",
         reasons="looks good",
         label=JudgeLabel.ACCEPTED,
         score=8.0,
         confidence=0.9,
     )
-    assert judgement.data_publicly_available == JudgeLabel.ACCEPTED
+    assert judgement.data_publicly_available

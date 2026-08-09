@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from open_fin_gym.pipeline.config import Scope, scope_context
 from open_fin_gym.pipeline.db.tables import JudgeLabel, Paper
@@ -46,15 +46,15 @@ Hard acceptance rule:
 - Accept only if ALL THREE conditions are satisfied:
   (1) the paper has STRONG EVIDENCE of relevance to this scope, especially in terms of experiments, datasets, and evaluation metrics; AND
   (2) there is STRONG EVIDENCE of detailed setups for ALL three: experiments, datasets, and evaluation metrics; AND
-  (3) 'data_publicly_available' (decided below) is 'accepted'.
+  (3) 'data_publicly_available' (decided below) is 'true'.
 - Reject papers that are off-topic, surveys, position papers, or theory-only work.
 - If evidence is weak, incomplete, or ambiguous, reject by default.
 
 Data availability criterion - decide this INDEPENDENTLY of the overall relevance judgement, using this exact rule:
-- If the data used in the paper is proprietary AND there is no public source for it, reject (`data_publicly_available = rejected`).
-- If the data is proprietary BUT it can be recreated/reconstructed from public sources (i.e. a public-data equivalent exists), accept (`data_publicly_available = accepted`).
+- If the data used in the paper is proprietary AND there is no public source for it, reject (`data_publicly_available = false`).
+- If the data is proprietary BUT it can be recreated/reconstructed from public sources (i.e. a public-data equivalent exists), accept (`data_publicly_available = true`).
 - If the data is already public, accept.
-- If more than one dataset is used, `data_publicly_available = accepted` as long as at least one benchmark-relevant dataset satisfies the above.
+- If more than one dataset is used, `data_publicly_available = true` as long as at least one benchmark-relevant dataset satisfies the above.
 
 Treat the following as positive evidence that data is public or publicly reconstructible:
 - the dataset is from an open-data body or public exchange API (e.g. FRED, IMF, World Bank, ECB, BIS, exchange public REST endpoints)
@@ -98,11 +98,11 @@ class Evidence(BaseModel):
 
 class SiftJudgement(BaseModel):
     evidence: Evidence
-    data_publicly_available: JudgeLabel = Field(
+    data_publicly_available: bool = Field(
         description=(
-            "Whether the paper's data is public, or proprietary but reconstructible "
-            "from public sources ('accepted'), versus proprietary with no public "
-            "source ('rejected'). Decided independently of the overall `label`."
+            "True if the paper's data is public, or proprietary but "
+            "reconstructible from public sources. False if proprietary with "
+            "no public source."
         )
     )
     data_availability_reasoning: str = Field(
@@ -116,3 +116,13 @@ class SiftJudgement(BaseModel):
     label: JudgeLabel
     score: float = Field(0.0, ge=0.0, le=10.0)
     confidence: float = Field(0.0, ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def _data_availability_gates_label(self) -> "SiftJudgement":
+        if not self.data_publicly_available and self.label == JudgeLabel.ACCEPTED:
+            self.label = JudgeLabel.REJECTED
+            self.reasons = (
+                f"{self.reasons}\n\n"
+                "Overridden to be rejected: data_publicly_available is False"
+            )
+        return self

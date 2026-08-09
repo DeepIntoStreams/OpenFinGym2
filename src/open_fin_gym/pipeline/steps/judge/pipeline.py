@@ -173,16 +173,15 @@ class Judge:
                     confidence=0.0,
                     reasons=f"LLM error for this paper {e}",
                     evidence=Evidence(experiments="", datasets="", metrics=""),
-                    data_publicly_available=JudgeLabel.REJECTED,
+                    data_publicly_available=False,
                     data_availability_reasoning=f"LLM error for this paper {e}",
                 )
                 rejection_reason = RejectionReason.LLMError
 
-            data_available = response.data_publicly_available == JudgeLabel.ACCEPTED
+            data_available = response.data_publicly_available
             accepted = (
                 response.label == JudgeLabel.ACCEPTED
                 and response.score >= self.cfg.threshold_default
-                and data_available
             )
             if not accepted and rejection_reason is None and not data_available:
                 rejection_reason = RejectionReason.DataNotPublic

@@ -87,7 +87,7 @@ def test_rejects_when_data_not_public(db, scope, tmp_path):
     judge = make_judge(db)
     judge.llm.with_structured_output.return_value.invoke.return_value = SiftJudgement(
         evidence=Evidence(experiments="e", datasets="d", metrics="m"),
-        data_publicly_available=JudgeLabel.REJECTED,
+        data_publicly_available=False,
         data_availability_reasoning="proprietary broker feed, no public source",
         reasons="otherwise relevant",
         label=JudgeLabel.ACCEPTED,
@@ -107,7 +107,7 @@ def test_accepts_when_data_public_and_score_high(db, scope, tmp_path):
     judge = make_judge(db)
     judge.llm.with_structured_output.return_value.invoke.return_value = SiftJudgement(
         evidence=Evidence(experiments="e", datasets="d", metrics="m"),
-        data_publicly_available=JudgeLabel.ACCEPTED,
+        data_publicly_available=True,
         data_availability_reasoning="reconstructible via yfinance",
         reasons="good paper",
         label=JudgeLabel.ACCEPTED,
@@ -134,3 +134,16 @@ def test_llm_error_does_not_crash_and_sets_llm_error_reason(db, scope, tmp_path)
     paper = _get_paper(db)
     assert paper.status == PaperStatus.REJECTED
     assert paper.rejection_reason == RejectionReason.LLMError
+
+
+def test_validator_overrides_inconsistent_label():
+    judgement = SiftJudgement(
+        evidence=Evidence(experiments="e", datasets="d", metrics="m"),
+        data_publicly_available=False,
+        data_availability_reasoning="proprietary, no public source",
+        reasons="looked relevant",
+        label=JudgeLabel.ACCEPTED,  # LLM said accept despite unavailable data
+        score=9.0,
+        confidence=0.9,
+    )
+    assert judgement.label == JudgeLabel.REJECTED
