@@ -6,13 +6,6 @@ from jinja2 import Environment, FileSystemLoader
 from open_fin_gym.pipeline.steps.task_export.pipeline import slugify
 
 
-@pytest.fixture
-def task_meta_template():
-    return Environment(loader=FileSystemLoader("templates")).get_template(
-        "task.toml.j2"
-    )
-
-
 @pytest.mark.parametrize(
     "description",
     [
@@ -22,9 +15,12 @@ def task_meta_template():
         r"Uses a \tau-scaled loss.",
     ],
 )
-def test_task_config_survives_llm_prose(task_meta_template, description: str) -> None:
+def test_task_config_survives_llm_prose(description: str) -> None:
     # Both description fields are free text written by an LLM
-    config = task_meta_template.render(
+    template = Environment(loader=FileSystemLoader("templates")).get_template(
+        "task.toml.j2"
+    )
+    config = template.render(
         org_name="org",
         task_name="task",
         description=description,
