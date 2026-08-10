@@ -72,6 +72,7 @@ class RejectionReason(StrEnum):
     JudgeRejected = "judge_rejected"
     JudgeCutoff = "judge_cutoff"
     LLMError = "llm_error"
+    DataNotPublic = "data_not_public"
 
 
 class Paper(Base):
