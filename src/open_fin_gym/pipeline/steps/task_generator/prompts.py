@@ -1,33 +1,7 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
-from open_fin_gym.pipeline.db.tables import (
-    BaseDatasetCandidate,
-    MetricCandidate,
-)
-from open_fin_gym.pipeline.steps.task_extraction.prompts import (
-    AssessmentMetric,
-    Dataset,
-)
-
-
-class TaskSpecification(BaseModel):
-    id: int = Field(description="Task id")
-    task_name: str = Field(description="Name id assigned to the task")
-    task_description: str = Field(
-        description="Description of the ML task including the data and how it is assessed"
-    )
-    training_inputs: list[Dataset] = Field(
-        description="List of training input datasets"
-    )
-    training_targets: list[Dataset] = Field(
-        description="List of training ground-truth/target datasets"
-    )
-    test_inputs: list[Dataset] = Field(description="List of test input datasets")
-    test_targets: list[Dataset] = Field(
-        description="List of ground truth datasets used to assess the users output against"
-    )
-    test_outputs: list[Dataset] = Field(description="List of expected user outputs")
-    metrics: list[AssessmentMetric] = Field(description="List of assessment metrics")
+from open_fin_gym.pipeline.steps.task_extraction.prompts import Dataset
+from open_fin_gym.pipeline.steps.task_extraction.utils import TaskSpecification
 
 
 class DatasetRetrieval(BaseModel):
@@ -39,25 +13,6 @@ class DatasetRetrieval(BaseModel):
 class Assessment(BaseModel):
     assessment_script: str
     requirements: list[str]
-
-
-def convert_dataset(d: BaseDatasetCandidate) -> Dataset:
-    return Dataset(
-        name=d.name,
-        filename=d.filename,
-        description=d.description,
-        source=d.source,
-        relevant_urls=d.relevant_urls,
-        download_link=d.download_link,
-    )
-
-
-def convert_metric(d: MetricCandidate) -> AssessmentMetric:
-    return AssessmentMetric(
-        name=d.name,
-        description=d.description,
-        input_datasets=d.input_datasets,
-    )
 
 
 def join_datasets(datasets: list[Dataset]) -> str:

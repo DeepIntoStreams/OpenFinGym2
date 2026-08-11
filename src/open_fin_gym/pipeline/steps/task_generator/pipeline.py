@@ -15,18 +15,18 @@ from open_fin_gym.pipeline.db.tables import (
     TaskStatus,
 )
 from open_fin_gym.pipeline.db.utils import set_task_candidate_status
+from open_fin_gym.pipeline.steps.task_extraction.utils import (
+    build_task_specification,
+)
 
 from .config import TaskGenerationConfig
 from .prompts import (
     Assessment,
     DatasetRetrieval,
-    TaskSpecification,
     build_dataset_download_prompt,
     build_description_summary_prompt,
     build_difficulty_explanation_prompt,
     build_metric_prompt,
-    convert_dataset,
-    convert_metric,
 )
 
 logger = logging.getLogger(__name__)
@@ -64,25 +64,10 @@ class TaskGenerator:
         with Session(self.db) as session:
             stmt = select(TaskCandidate).where(
                 TaskCandidate.scope_id == scope.id,
-                TaskCandidate.status == TaskCandidateStatus.NEW,
+                TaskCandidate.status == TaskCandidateStatus.APPROVED,
             )
             tasks: list[TaskCandidate] = session.execute(stmt).scalars().all()
-            task_specs = [
-                TaskSpecification(
-                    id=task.task_id,
-                    task_name=task.task_name,
-                    task_description=task.description,
-                    training_inputs=[convert_dataset(x) for x in task.training_inputs],
-                    training_targets=[
-                        convert_dataset(x) for x in task.training_targets
-                    ],
-                    test_inputs=[convert_dataset(x) for x in task.test_inputs],
-                    test_targets=[convert_dataset(x) for x in task.test_targets],
-                    test_outputs=[convert_dataset(x) for x in task.test_outputs],
-                    metrics=[convert_metric(x) for x in task.assessment_metrics],
-                )
-                for task in tasks
-            ]
+            task_specs = [build_task_specification(task) for task in tasks]
 
         logger.info(f"Generating {len(task_specs)} tasks for scope {scope.name}")
 

@@ -118,6 +118,8 @@ class Chunk(Base):
 
 class TaskCandidateStatus(StrEnum):
     NEW = "new"
+    APPROVED = "approved"
+    REJECTED = "rejected"
     PROCESSED = "processed"
     FAILED = "failed"
 
