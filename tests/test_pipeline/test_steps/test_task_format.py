@@ -4,6 +4,7 @@ from jinja2 import Environment, FileSystemLoader
 from open_fin_gym.pipeline.db.tables import TaskType
 from open_fin_gym.pipeline.steps.task_extraction.prompts import Dataset
 from open_fin_gym.pipeline.steps.task_generator.prompts import (
+    METRIC_COMPARISONS,
     TaskSpecification,
     build_metric_prompt,
 )
@@ -64,3 +65,8 @@ def test_metric_prompt_matches_task_type(task_type: TaskType, expected: str) -> 
     )
 
     assert expected in build_metric_prompt(spec)
+
+
+def test_every_task_type_has_a_comparison() -> None:
+    # A new task type must not fall back to the forecasting wording
+    assert set(METRIC_COMPARISONS) == set(TaskType)

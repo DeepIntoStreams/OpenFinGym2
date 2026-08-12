@@ -11,6 +11,17 @@ from open_fin_gym.pipeline.steps.task_extraction.prompts import (
 )
 
 
+METRIC_COMPARISONS = {
+    TaskType.FORECASTING: (
+        "Each row of the user output matches the same row of the test target."
+    ),
+    TaskType.GENERATION: (
+        "The user samples their output, so compare the two datasets as "
+        "distributions and do not assume the rows are paired."
+    ),
+}
+
+
 class TaskSpecification(BaseModel):
     id: int = Field(description="Task id")
     task_name: str = Field(description="Name id assigned to the task")
@@ -109,15 +120,7 @@ def build_metric_prompt(task_spec: TaskSpecification) -> str:
     test_outputs = join_specs(task_spec.test_outputs)
     test_targets = join_specs(task_spec.test_targets)
     metrics = join_specs(task_spec.metrics)
-    if task_spec.task_type == TaskType.GENERATION:
-        comparison = (
-            "The user samples their output, so compare the two datasets as "
-            "distributions and do not assume the rows are paired."
-        )
-    else:
-        comparison = (
-            "Each row of the user output matches the same row of the test target."
-        )
+    comparison = METRIC_COMPARISONS[task_spec.task_type]
     return f"""
 You are given the specification of a machine learning task. You should write
 a Python script that assess the test_output produced by the user against the
