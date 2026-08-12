@@ -10,7 +10,9 @@ from open_fin_gym.pipeline.steps.task_extraction.prompts import (
     Dataset,
 )
 
-METRIC_COMPARISONS = {
+# How the user output lines up with the test target, which decides whether the
+# verifier can compare them row by row
+COMPARISON_BY_TASK_TYPE = {
     TaskType.FORECASTING: (
         "Each row of the user output matches the same row of the test target."
     ),
@@ -19,6 +21,14 @@ METRIC_COMPARISONS = {
         "distributions and do not assume the rows are paired."
     ),
 }
+
+# Prompts are built before the generator's error handling, so an unhandled task type
+# would abort a run that has already spent LLM calls. Fail on import instead.
+if set(COMPARISON_BY_TASK_TYPE) != set(TaskType):
+    raise ValueError(
+        f"No comparison defined for task type(s) "
+        f"{sorted(set(TaskType) - set(COMPARISON_BY_TASK_TYPE))}"
+    )
 
 
 class TaskSpecification(BaseModel):
@@ -119,9 +129,7 @@ def build_metric_prompt(task_spec: TaskSpecification) -> str:
     test_outputs = join_specs(task_spec.test_outputs)
     test_targets = join_specs(task_spec.test_targets)
     metrics = join_specs(task_spec.metrics)
-    comparison = METRIC_COMPARISONS.get(task_spec.task_type)
-    if comparison is None:
-        raise ValueError(f"No metric comparison for task type {task_spec.task_type}")
+    comparison = COMPARISON_BY_TASK_TYPE[task_spec.task_type]
     return f"""
 You are given the specification of a machine learning task. You should write
 a Python script that assess the test_output produced by the user against the
