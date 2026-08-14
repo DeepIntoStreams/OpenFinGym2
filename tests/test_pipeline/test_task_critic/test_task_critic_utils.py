@@ -1,5 +1,6 @@
 import pytest
 
+from open_fin_gym.pipeline.db.tables import TaskType
 from open_fin_gym.pipeline.steps.task_critic.utils import structural_issues
 from open_fin_gym.pipeline.steps.task_extraction.prompts import (
     AssessmentMetric,
@@ -107,3 +108,17 @@ def test_flags_metric_referencing_unknown_dataset():
     assert len(issues) == 1
     assert "mse" in issues[0]
     assert "does_not_exist.csv" in issues[0]
+
+
+def test_generation_spec_with_empty_targets_and_inputs_has_no_issues():
+    spec = make_spec(
+        task_type=TaskType.GENERATION,
+        training_targets=[],
+        test_inputs=[],
+    )
+    assert structural_issues(spec) == []
+
+
+def test_generation_spec_missing_required_group_is_flagged():
+    spec = make_spec(task_type=TaskType.GENERATION, test_outputs=[])
+    assert structural_issues(spec) == ["test_outputs is empty"]

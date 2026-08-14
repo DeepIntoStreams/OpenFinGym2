@@ -2,10 +2,11 @@ from typing import Type
 
 from pydantic import BaseModel, Field
 
-from open_fin_gym.pipeline.db.tables import BaseDatasetCandidate  # New
 from open_fin_gym.pipeline.db.tables import (
+    BaseDatasetCandidate,
     MetricCandidate,
     TaskCandidate,
+    TaskType,
     TestInputDatasetCandidate,
     TestOutputDatasetCandidate,
     TestTargetDatasetCandidate,
@@ -75,6 +76,7 @@ def convert_metric(d: MetricCandidate) -> AssessmentMetric:
 class TaskSpecification(BaseModel):
     id: int = Field(description="Task id")
     task_name: str = Field(description="Name id assigned to the task")
+    task_type: TaskType = Field(description="Whether outputs are predicted or sampled")
     task_description: str = Field(
         description="Description of the ML task including the data and how it is assessed"
     )
@@ -96,6 +98,7 @@ def build_task_specification(task: TaskCandidate) -> TaskSpecification:
     return TaskSpecification(
         id=task.task_id,
         task_name=task.task_name,
+        task_type=task.task_type,
         task_description=task.description,
         training_inputs=[convert_dataset(x) for x in task.training_inputs],
         training_targets=[convert_dataset(x) for x in task.training_targets],

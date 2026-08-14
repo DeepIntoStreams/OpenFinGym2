@@ -18,6 +18,7 @@ invent details; judge only what is written below.
 {scope_context(scope)}
 
 Task name: {spec.task_name}
+Task type: {spec.task_type}
 Task description: {spec.task_description}
 
 Training input datasets:
@@ -39,7 +40,9 @@ Assessment metrics:
 {_join(spec.metrics)}
 
 Checks to make:
-1) Consistency: do the datasets and metrics match what the description says will happen?
+1) Consistency: do the datasets, metrics, and description match the declared task
+   type? (e.g. a "generation" task samples outputs unconditionally and should not
+   have test inputs; a "forecasting" task predicts from test inputs and should.)
 2) Completeness: is each dataset specific enough (entities, period, frequency, real
    source/download path) to script against, without guessing?
 3) Metric validity: do the metrics make sense given the test outputs/targets, and do
