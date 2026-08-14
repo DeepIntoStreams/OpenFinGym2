@@ -1,4 +1,4 @@
-threshold_default: 6.0
+threshold_default: 7.0
 llm:
   _target_: langchain_openai.chat_models.ChatOpenAI
   model: gpt-4.1-mini

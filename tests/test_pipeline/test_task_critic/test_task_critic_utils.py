@@ -24,6 +24,7 @@ def make_spec(**overrides) -> TaskSpecification:
     defaults = dict(
         id=1,
         task_name="task",
+        task_type=TaskType.FORECASTING,
         task_description="desc",
         training_inputs=[make_dataset("train_x", "train_x.csv")],
         training_targets=[make_dataset("train_y", "train_y.csv")],
