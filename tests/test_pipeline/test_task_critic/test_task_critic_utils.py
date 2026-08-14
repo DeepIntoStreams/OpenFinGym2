@@ -120,6 +120,11 @@ def test_generation_spec_with_empty_targets_and_inputs_has_no_issues():
     assert structural_issues(spec) == []
 
 
+def test_generation_spec_missing_test_targets_is_flagged():
+    spec = make_spec(task_type=TaskType.GENERATION, test_targets=[])
+    assert structural_issues(spec) == ["test_targets is empty"]
+
+
 def test_generation_spec_missing_required_group_is_flagged():
     spec = make_spec(task_type=TaskType.GENERATION, test_outputs=[])
     assert structural_issues(spec) == ["test_outputs is empty"]
