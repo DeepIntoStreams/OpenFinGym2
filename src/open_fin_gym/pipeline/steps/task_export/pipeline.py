@@ -1,5 +1,4 @@
 import logging
-import re
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
@@ -11,6 +10,7 @@ from open_fin_gym.pipeline.db.tables import Task, TaskStatus
 from open_fin_gym.pipeline.db.utils import set_task_status
 
 from .config import TaskExportConfig
+from .utils import slugify
 
 logger = logging.getLogger(__name__)
 
@@ -107,16 +107,3 @@ class TaskExporter:
             except Exception as e:
                 logger.error(f"Export of task {task.name} failed - {e}")
                 set_task_status(self.db, task.task_id, TaskStatus.EXPORT_FAILED)
-
-
-def slugify(name: str) -> str:
-    """
-    Convert a task name into a directory name
-
-    Args:
-        name: Task name, which the LLM is free to choose
-
-    Returns:
-        Name reduced to lowercase words joined by underscores
-    """
-    return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_") or "task"

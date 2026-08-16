@@ -3,7 +3,7 @@ import tomllib
 import pytest
 from jinja2 import Environment, FileSystemLoader
 
-from open_fin_gym.pipeline.steps.task_export.pipeline import slugify
+from open_fin_gym.pipeline.steps.task_export.utils import slugify
 
 
 @pytest.mark.parametrize(
