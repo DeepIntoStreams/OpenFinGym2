@@ -24,8 +24,6 @@ from sqlalchemy.orm import (
 Base = declarative_base()
 
 
-# Adding a member also needs a METRIC_COMPARISONS entry and a worked example in
-# build_paper_summary_prompt, or papers of the new type get the wrong shape
 class TaskType(StrEnum):
     FORECASTING = "forecasting"
     GENERATION = "generation"
