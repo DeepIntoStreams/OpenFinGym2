@@ -1,0 +1,6 @@
+# Source tarballs are not an option: robots.txt disallows /e-print, unlike /html and /pdf
+source_preference: [ html, pdf ]
+arxiv_html_url: https://arxiv.org/html/{id}
+request_interval_sec: 15.0
+timeout_sec: 30.0
+user_agent: open-fin-gym/0.1 (https://github.com/DeepIntoStreams/OpenFinGym2)

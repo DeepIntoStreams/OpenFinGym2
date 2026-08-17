@@ -156,7 +156,7 @@ class Judge:
                 chunks: list[Chunk] = session.execute(stmt).scalars().all()
 
             chunks = filter_chunks(chunks)
-            excerpt = "/n/n".join([x.text for x in chunks])
+            excerpt = "\n\n".join([x.text for x in chunks])
             prompt = build_sift_judge_prompt(scope, paper, excerpt=excerpt)
             llm = self.llm.with_structured_output(SiftJudgement)
 
@@ -173,13 +173,19 @@ class Judge:
                     confidence=0.0,
                     reasons=f"LLM error for this paper {e}",
                     evidence=Evidence(experiments="", datasets="", metrics=""),
+                    data_publicly_available=False,
+                    data_availability_reasoning=f"LLM error for this paper {e}",
                 )
                 rejection_reason = RejectionReason.LLMError
 
+            data_available = response.data_publicly_available
             accepted = (
                 response.label == JudgeLabel.ACCEPTED
                 and response.score >= self.cfg.threshold_default
             )
+            if not accepted and rejection_reason is None and not data_available:
+                rejection_reason = RejectionReason.DataNotPublic
+
             status = PaperStatus.ACCEPTED if accepted else PaperStatus.REJECTED
             self.set_paper_status(paper, status, rejection_reason=rejection_reason)
             judgements.append(
@@ -188,7 +194,10 @@ class Judge:
                     scope_id=scope.id,
                     accepted=accepted,
                     rejection_reason=rejection_reason,
-                    reasoning=response.reasons,
+                    reasoning=(
+                        f"{response.reasons}\n\n"
+                        f"Data availability: {response.data_availability_reasoning}"
+                    ),
                 )
             )
 

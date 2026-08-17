@@ -56,7 +56,7 @@ def run_pipeline(cfg: PipelineConfig) -> None:
             cfg.scraping.max_papers_per_scope,
         )
 
-        retrieval_pipeline = PaperRetrieval(db_engine)
+        retrieval_pipeline = PaperRetrieval(db_engine, cfg.retrieval)
         retrieval_pipeline.download_and_chunk_papers(output_dir)
 
         judge_pipeline = Judge(db_engine, cfg.judge)

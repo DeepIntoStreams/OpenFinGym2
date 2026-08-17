@@ -1,5 +1,7 @@
 import logging
+import math
 from datetime import datetime, timezone
+from itertools import islice
 
 import arxiv
 
@@ -41,7 +43,7 @@ class ArxivClient:
             scope: Scope configuration
             since_date: Optional date to search from
             until_date: Optional date to search to
-            max_papers: Max number of papers to return for this scope
+            max_papers: Max number of papers to return across the scope's queries
 
         Returns:
             Dictionary of paper records indexed by their id
@@ -51,11 +53,12 @@ class ArxivClient:
         categories = scope.categories
         date_range = _to_arxiv_date_range(since_date, until_date)
 
-        n_queries = len(scope.queries)
-        max_per_query = (max_papers - max_papers % n_queries) // n_queries
+        # Round up so a scope with more queries than budget still returns papers
+        max_per_query = math.ceil(max_papers / len(scope.queries))
 
         for query in scope.queries:
-            search_parts = [f"all:{query}"]
+            # Queries carry their own field prefix, e.g. all: or ti:
+            search_parts = [query]
             if scope.categories:
                 cat_filter = " OR ".join(f"cat:{c}" for c in categories)
                 search_parts.append(f"({cat_filter})")
@@ -92,7 +95,8 @@ class ArxivClient:
                     peer_reviewed=bool(journal_ref),
                 )
 
-        return papers
+        # Queries overlap, so the budget is applied to the deduplicated result
+        return dict(islice(papers.items(), max_papers))
 
 
 def _to_arxiv_date_range(start: datetime | None, end: datetime | None) -> str | None:

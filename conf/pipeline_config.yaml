@@ -3,11 +3,15 @@ mlflow:
   experiment_name: task-extraction-pipeline
 defaults:
   - scraping: default_scraper
+  - retrieval: default_retrieval
   - judge: default_judge
   - task_extractor: default_task_extractor
   - task_generator: default_task_generator
   - task_exporter: default_task_exporter
 db_engine: sqlite:///./pipeline.db
+# Queries are arXiv search expressions and carry their own field prefix. Only the first
+# clause needs one; later clauses default to all:. Multi-word terms must be quoted, as an
+# unquoted term is parsed as OR. Wildcards are unsupported and arXiv already stems.
 scopes:
   - id: financial_return_forecasting
     name: "Financial Return Forecasting"
@@ -18,18 +22,105 @@ scopes:
       distributional forecasting, and directional prediction across asset classes such as
       crypto, equities, FX, fixed income, commodities, ETFs, and indices.
     enabled: true
-    categories: [ q-fin.CP, q-fin.ST, q-fin.TR, q-fin.PM, cs.LG, stat.ML, cs.AI ]
+    categories: [ q-fin.CP, q-fin.ST, q-fin.TR, q-fin.PM, cs.LG, stat.ML ]
     queries:
-      - '((stock OR equity OR cryptocurrency OR forex OR FX OR bond OR commodity OR ETF OR futures OR "stock index" OR "equity index" OR "interest rate*" OR "exchange rate*" OR "asset return*" OR "asset price*" OR "financial market*")
-        AND (return* OR price* OR volatility OR "realized volatility")
-        AND (forecast* OR predict* OR nowcast* OR "time series" OR "sequence model")
-        AND (LSTM OR Transformer OR "neural network" OR "deep learning" OR "state space" OR diffusion))'
-      - '((stock OR equity OR cryptocurrency OR forex OR FX OR bond OR commodity OR ETF OR futures OR "stock index" OR "equity index" OR "interest rate*" OR "exchange rate*" OR "asset return*" OR "asset price*" OR "financial market*")
-        AND (return* OR price* OR volatility)
-        AND (predict* OR forecast*)
-        AND (backtest OR "out-of-sample" OR "walk-forward" OR Sharpe OR Sortino OR drawdown OR PnL)
-        AND (machine learning OR deep learning OR statistical learning))'
-      - '("limit order book" OR "order flow" OR "high-frequency" OR "tick data")
-        AND (predict* OR forecast*)
-        AND (return* OR price* OR movement)
-        AND (deep learning OR Transformer OR CNN OR LSTM)'
+      - 'all:("stock" OR "equity" OR "cryptocurrency" OR "foreign exchange" OR "asset return" OR "asset price"
+        OR "financial market" OR "stock index" OR "exchange rate" OR "interest rate" OR "commodity price"
+        OR "financial time series")
+        AND ("return" OR "price" OR "volatility" OR "realized volatility")
+        AND ("forecasting" OR "prediction" OR "time series")
+        AND ("LSTM" OR "Transformer" OR "neural network" OR "deep learning" OR "state space model" OR "diffusion")'
+      - 'all:("stock" OR "equity" OR "cryptocurrency" OR "foreign exchange" OR "asset return" OR "asset price"
+        OR "financial market" OR "stock index" OR "exchange rate" OR "interest rate" OR "financial time series")
+        AND ("return" OR "price" OR "volatility")
+        AND ("forecasting" OR "prediction")
+        AND ("backtest" OR "out-of-sample" OR "Sharpe" OR "drawdown" OR "transaction cost")'
+      - 'all:("limit order book" OR "order flow" OR "high-frequency trading" OR "tick data" OR "market microstructure")
+        AND ("prediction" OR "forecasting" OR "classification")
+        AND ("deep learning" OR "Transformer" OR "CNN" OR "LSTM" OR "neural network")'
+
+  - id: financial_time_series_generation
+    name: "Financial Time-Series Generation"
+    task_type: "generation"
+    description: >
+      Generative, simulation-based, or synthetic-data methods for financial time-series,
+      including prices, returns, volatility, limit order books, order flow, risk scenarios,
+      and market regimes across equities, crypto, FX, rates, commodities, ETFs, futures,
+      and indices.
+    enabled: true
+    categories: [ q-fin.CP, q-fin.ST, q-fin.RM, q-fin.PM, cs.LG, stat.ML ]
+    queries:
+      - 'all:("generative model" OR "generative adversarial" OR "GAN" OR "variational autoencoder" OR "VAE"
+        OR "diffusion model" OR "normalizing flow" OR "score-based")
+        AND ("financial time series" OR "asset return" OR "stock price" OR "stock return" OR "return series"
+        OR "price series" OR "implied volatility" OR "realized volatility" OR "volatility surface" OR "market data")'
+      - 'all:("synthetic data" OR "scenario generation" OR "market scenario" OR "synthetic market data"
+        OR "data augmentation" OR "simulation")
+        AND ("financial time series" OR "asset return" OR "portfolio" OR "risk factor" OR "loss distribution"
+        OR "market risk" OR "credit spread")
+        AND ("GAN" OR "VAE" OR "diffusion" OR "copula" OR "neural network" OR "deep learning" OR "generative model")'
+      - 'all:("limit order book" OR "order book" OR "order flow" OR "market microstructure")
+        AND ("simulation" OR "simulator" OR "generation" OR "synthetic data" OR "agent-based model")
+        AND ("GAN" OR "diffusion" OR "Transformer" OR "point process" OR "Hawkes" OR "neural network" OR "deep learning")'
+
+  - id: alpha_trading
+    name: "Alpha Trading Agents"
+    task_type: "forecasting"
+    description: >
+      Machine-learning-driven discovery of predictive signals (alpha factors), portfolio
+      construction, and trading strategies from financial data, including signal generation,
+      factor modelling, portfolio optimisation, and execution-aware strategy design.
+    enabled: true
+    categories: [ q-fin.TR, q-fin.PM, q-fin.ST, q-fin.CP, cs.LG, stat.ML ]
+    queries:
+      - 'all:("alpha factor" OR "alpha signal" OR "alpha mining" OR "formulaic alpha" OR "trading signal"
+        OR "trading strategy" OR "factor model" OR "factor investing" OR "stock selection"
+        OR "portfolio optimization" OR "portfolio construction" OR "asset allocation"
+        OR "algorithmic trading" OR "quantitative trading" OR "market making")
+        AND ("machine learning" OR "deep learning" OR "neural network" OR "Transformer" OR "reinforcement learning")'
+      - 'all:("algorithmic trading" OR "order execution" OR "optimal execution" OR "market impact"
+        OR "market making" OR "high-frequency trading")
+        AND ("machine learning" OR "deep learning" OR "neural network" OR "reinforcement learning")
+        AND ("backtest" OR "out-of-sample" OR "Sharpe" OR "turnover" OR "transaction cost" OR "drawdown")'
+      - 'all:("portfolio optimization" OR "asset allocation" OR "portfolio construction" OR "portfolio selection")
+        AND ("machine learning" OR "deep learning" OR "neural network" OR "reinforcement learning")
+        AND ("return" OR "risk" OR "Sharpe" OR "drawdown" OR "volatility")'
+
+  - id: fraud_detection
+    name: "Fraud Detection"
+    task_type: "forecasting"
+    description: >
+      Detection of anomalous or fraudulent behaviour in financial systems using machine
+      learning or deep learning models, including transaction monitoring, anti-money
+      laundering, and graph-based anomaly detection in financial networks.
+    enabled: true
+    categories: [ cs.LG, cs.CR, stat.ML, q-fin.RM, q-fin.ST ]
+    queries:
+      - 'ti:("fraud" OR "money laundering" OR "financial crime" OR "anti-money laundering")
+        AND ("credit card" OR "payment" OR "banking" OR "transaction" OR "financial" OR "insurance"
+        OR "cryptocurrency")
+        AND ("machine learning" OR "deep learning" OR "graph neural network" OR "anomaly detection")'
+      - 'ti:("money laundering" OR "credit card fraud" OR "insurance fraud" OR "payment fraud"
+        OR "financial fraud" OR "transaction fraud" OR "fraud detection")
+        AND ("machine learning" OR "deep learning" OR "graph neural network" OR "GNN" OR "anomaly detection")'
+
+  - id: stress_testing
+    name: "Stress Testing and Risk Management"
+    task_type: "forecasting"
+    description: >
+      Evaluation of financial portfolios and risk models under extreme or counterfactual
+      scenarios using statistical, simulation-based, or machine learning approaches,
+      including scenario generation, tail risk modelling, and distributional stress analysis.
+    enabled: true
+    categories: [ q-fin.RM, q-fin.CP, q-fin.PM, q-fin.ST, cs.LG, stat.ML ]
+    queries:
+      - 'all:("value at risk" OR "expected shortfall" OR "CVaR" OR "conditional value at risk" OR "tail risk")
+        AND ("forecasting" OR "prediction" OR "estimation" OR "backtesting")
+        AND ("portfolio" OR "asset return" OR "market risk" OR "systemic risk" OR "loss distribution"
+        OR "volatility")'
+      - 'all:("stress test" OR "stress testing" OR "stress scenario" OR "adverse scenario" OR "scenario generation")
+        AND ("portfolio" OR "financial institution" OR "market risk" OR "systemic risk"
+        OR "loss distribution" OR "bank capital" OR "regulatory capital" OR "credit spread")'
+      - 'all:("regime switching" OR "market regime" OR "extreme value theory" OR "tail event" OR "crisis period")
+        AND ("portfolio" OR "asset return" OR "market risk" OR "tail risk" OR "value at risk"
+        OR "expected shortfall" OR "loss distribution")'
