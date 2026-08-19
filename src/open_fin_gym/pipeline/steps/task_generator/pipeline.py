@@ -16,6 +16,7 @@ from open_fin_gym.pipeline.db.tables import (
 )
 from open_fin_gym.pipeline.db.utils import set_task_candidate_status
 
+from .code_checks import test_test_download_script, test_train_download_script
 from .config import TaskGenerationConfig
 from .prompts import (
     Assessment,
@@ -28,7 +29,6 @@ from .prompts import (
     convert_dataset,
     convert_metric,
 )
-from .utils import test_test_download_script, test_train_download_script
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +38,12 @@ class TaskGenerator:
         self.db = db
         self.llm: BaseChatModel = instantiate(cfg.llm)
         self.template_env = Environment(loader=FileSystemLoader(cfg.templates_path))
+
+        def strformat(v, fmt):
+            return fmt % v
+
+        self.template_env.filters["strformat"] = strformat
+
         self.instructions_template = self.template_env.get_template(
             "instructions.md.j2"
         )
@@ -143,7 +149,7 @@ class TaskGenerator:
                     )
 
                 test_build_success, test_build_message = test_test_download_script(
-                    self.train_docker_template,
+                    self.test_docker_template,
                     dataset_scripts.testing_script,
                     assessment_script.assessment_script,
                     requirements,
