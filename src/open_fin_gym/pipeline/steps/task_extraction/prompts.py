@@ -1,7 +1,57 @@
 from pydantic import BaseModel, Field
 
 from open_fin_gym.pipeline.config import Scope
-from open_fin_gym.pipeline.db.tables import Paper
+from open_fin_gym.pipeline.db.tables import Paper, TaskType
+
+
+TASK_EXAMPLES = {
+    TaskType.FORECASTING: """
+## Example: forecasting
+
+If the paper describes an experiment where they assessed their models ability to predict 7 days of a stock prices from a 30 day window
+assessed on the MSE between the predicted and ground-truth prices, the specification could include:
+
+- Description: The task is to implement a model that predicts the following 7 days of prices of a single stock, given the previous 30 days.
+  You are provided with a training set consisting of a [M, 30] matrix of input windows, and corresponding [M, 7] target outputs. You are
+  also provided with a [N, 30] set of test inputs and you should produce a [N, 7] matrix of outputs for assessment against the ground truth.
+  The output of your model will be assessed using the MSE between your output and the ground-truth.
+- Training input data:
+    - x_train a [M, 30] matrix of M 30-day AAPL stock price windows randomly sampled from 2020
+- Training target data:
+    - y_train a [M, 7] target price windows following on from x_train
+- Test input data:
+    - x_test a [N, 30] matrix of N 30-day AAPL stock price windows randomly sampled from 2020
+- Test output data:
+    - y_pred a [N, 7] matrix of predicted prices for the 7 days following on from the provided x_test
+- Test target data:
+    - y_test a [N, 7] matrix of target price windows following on from x_test
+- Assessment metrics:
+    - MSE: The mean-squared-error between y_pred and y_test
+""".strip(),
+    TaskType.GENERATION: """
+## Example: generation
+
+If the paper describes an experiment where they fit a generative model to daily equity returns and assessed the realism of sampled
+paths against held-out real returns, the specification could include:
+
+- Description: The task is to implement a generative model of daily log-returns, trained on a [M, 250] matrix of real return windows.
+  You should sample a [N, 250] matrix of synthetic windows and write it out. Sampling is unconditional, so there are no test inputs.
+  Your output is assessed distributionally against a held-out sample of real windows.
+- Training input data:
+    - returns_train a [M, 250] matrix of M 250-day AAPL log-return windows from 2015-2019
+- Training target data:
+    - (none, the model is fit to the training inputs)
+- Test input data:
+    - (none, sampling is unconditional)
+- Test output data:
+    - samples a [N, 250] matrix of N synthetic 250-day log-return windows
+- Test target data:
+    - returns_test a [K, 250] matrix of held-out real 250-day log-return windows from 2020
+- Assessment metrics:
+    - wasserstein: 1-Wasserstein distance between the marginal return distributions of samples and returns_test
+    - acf_error: Absolute error between the autocorrelation functions of the squared returns of samples and returns_test
+""".strip(),
+}
 
 
 def build_paper_summary_prompt(
@@ -26,49 +76,7 @@ The specification of the task should consist of:
 
 These descriptions will then be used to generate description files, and code to generate relevant datasets.
 
-## Example: forecasting
-
-If the paper describes an experiment where they assessed their models ability to predict 7 days of a stock prices from a 30 day window
-assessed on the MSE between the predicted and ground-truth prices, the specification could include:
-
-- Description: The task is to implement a model that predicts the following 7 days of prices of a single stock, given the previous 30 days.
-  You are provided with a training set consisting of a [M, 30] matrix of input windows, and corresponding [M, 7] target outputs. You are
-  also provided with a [N, 30] set of test inputs and you should produce a [N, 7] matrix of outputs for assessment against the ground truth.
-  The output of your model will be assessed using the MSE between your output and the ground-truth.
-- Training input data:
-    - x_train a [M, 30] matrix of M 30-day AAPL stock price windows randomly sampled from 2020
-- Training target data:
-    - y_train a [M, 7] target price windows following on from x_train
-- Test input data:
-    - x_test a [N, 30] matrix of N 30-day AAPL stock price windows randomly sampled from 2020
-- Test output data:
-    - y_pred a [N, 7] matrix of predicted prices for the 7 days following on from the provided x_test
-- Test target data:
-    - y_test a [N, 7] matrix of target price windows following on from x_test
-- Assessment metrics:
-    - MSE: The mean-squared-error between y_pred and y_test
-
-## Example: generation
-
-If the paper describes an experiment where they fit a generative model to daily equity returns and assessed the realism of sampled
-paths against held-out real returns, the specification could include:
-
-- Description: The task is to implement a generative model of daily log-returns, trained on a [M, 250] matrix of real return windows.
-  You should sample a [N, 250] matrix of synthetic windows and write it out. Sampling is unconditional, so there are no test inputs.
-  Your output is assessed distributionally against a held-out sample of real windows.
-- Training input data:
-    - returns_train a [M, 250] matrix of M 250-day AAPL log-return windows from 2015-2019
-- Training target data:
-    - (none, the model is fit to the training inputs)
-- Test input data:
-    - (none, sampling is unconditional)
-- Test output data:
-    - samples a [N, 250] matrix of N synthetic 250-day log-return windows
-- Test target data:
-    - returns_test a [K, 250] matrix of held-out real 250-day log-return windows from 2020
-- Assessment metrics:
-    - wasserstein: 1-Wasserstein distance between the marginal return distributions of samples and returns_test
-    - acf_error: Absolute error between the autocorrelation functions of the squared returns of samples and returns_test
+{TASK_EXAMPLES[scope.task_type]}
 
 ## Notes
 
