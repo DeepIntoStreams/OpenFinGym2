@@ -18,6 +18,7 @@ Paper categories: {", ".join(paper.categories) or "(none)"}
 Decision policy:
 - Accept only if there is **STRONG EVIDENCE** of in-scope ML work.
 - Reject obvious surveys, position papers, theory-only papers, or clearly off-scope domains.
+- Reject if the abstract clearly shows the other task type; judge by what the experiment does, not the method it uses, so a generative model used to forecast is a forecasting paper.
 - When uncertain or evidence is weak, reject by default.
 
 Task:
