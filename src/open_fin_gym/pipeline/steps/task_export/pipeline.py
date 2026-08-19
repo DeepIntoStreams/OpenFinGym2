@@ -10,6 +10,7 @@ from open_fin_gym.pipeline.db.tables import Task, TaskStatus
 from open_fin_gym.pipeline.db.utils import set_task_status
 
 from .config import TaskExportConfig
+from .utils import slugify
 
 logger = logging.getLogger(__name__)
 
@@ -52,13 +53,12 @@ class TaskExporter:
 
         for task in tasks:
             try:
-                task_id = task.name.strip().lower().replace(" ", "_")
-                task_dir = self.export_path / task_id
-                task_dir.mkdir()
+                task_dir = self.export_path / slugify(task.name)
+                task_dir.mkdir(parents=True, exist_ok=True)
 
                 task_config = self.task_meta_template.render(
                     org_name=self.task_meta.org_name,
-                    task_name=task_id,
+                    task_name=task_dir.name,
                     description=task.short_description,
                     keywords=[],
                     difficulty_explanation=task.difficulty_explanation,
