@@ -73,7 +73,7 @@ def test_train_download_script(
 
         docker_file = docker_template.render(requirements=requirements)
 
-        with open(script_path, "w") as f:
+        with open(folder_path / "Dockerfile", "w") as f:
             f.write(docker_file)
 
         try:
@@ -120,14 +120,32 @@ def test_test_download_script(
 
     with TemporaryDirectory() as folder:
         folder_path = Path(folder)
+        data_script_path = folder_path / "data.py"
+        verifier_script_path = folder_path / "verifier.py"
 
-        with open(folder_path / "data.py", "w") as f:
+        with open(data_script_path, "w") as f:
             f.write(data_download_script)
 
-        with open(folder_path / "verifier.py", "w") as f:
+        pylint_pass, pylint_messages = run_pylint(data_script_path)
+
+        if not pylint_pass:
+            message = "\n".join([f"- {x}" for x in pylint_messages])
+            return (
+                False,
+                f"PyLint detected the following errors in the data loading script\n\n{message}",
+            )
+
+        with open(verifier_script_path, "w") as f:
             f.write(verification_script)
 
-        run_pylint(argv=[str(folder_path / "data.py")])
+        pylint_pass, pylint_messages = run_pylint(verifier_script_path)
+
+        if not pylint_pass:
+            message = "\n".join([f"- {x}" for x in pylint_messages])
+            return (
+                False,
+                f"PyLint detected the following errors in the verifier script\n\n{message}",
+            )
 
         docker_file = docker_template.render(requirements=requirements)
 
