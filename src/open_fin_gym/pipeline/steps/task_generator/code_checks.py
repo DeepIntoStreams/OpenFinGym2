@@ -1,10 +1,40 @@
+import json
+from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import docker
 from docker.errors import BuildError
 from jinja2 import Template
-from pylint import run_pylint
+from pylint.lint import Run
+from pylint.reporters.json_reporter import JSON2Reporter
+
+
+def run_pylint(script_path: Path) -> tuple[bool, list[str]]:
+    """
+    Run pylint and report any code errors or fatal issues
+
+    Args:
+        script_path: Path to Python script/module
+
+    Returns:
+    Tuple containing flag indicating failure, and list of any error messages
+    """
+    pylint_output = StringIO()
+    reporter = JSON2Reporter(pylint_output)
+    Run([str(script_path)], reporter=reporter, exit=False)
+    output = pylint_output.getvalue()
+    results = json.loads(output)
+    counts = results["statistics"]["messageTypeCount"]
+
+    if counts["fatal"] == 0 and counts["error"] == 0:
+        return True, []
+
+    error_messages = [
+        m["message"] for m in results["messages"] if m["type"] in {"fatal", "error"}
+    ]
+
+    return False, error_messages
 
 
 def test_train_download_script(
@@ -30,15 +60,20 @@ def test_train_download_script(
 
     with TemporaryDirectory() as folder:
         folder_path = Path(folder)
+        script_path = folder_path / "data.py"
 
-        with open(folder_path / "data.py", "w") as f:
+        with open(script_path, "w") as f:
             f.write(download_script)
 
-        run_pylint(argv=[str(folder_path / "data.py")])
+        pylint_pass, pylint_messages = run_pylint(script_path)
+
+        if not pylint_pass:
+            message = "\n".join([f"- {x}" for x in pylint_messages])
+            return False, f"PyLint detected the following errors\n\n{message}"
 
         docker_file = docker_template.render(requirements=requirements)
 
-        with open(folder_path / "Dockerfile", "w") as f:
+        with open(script_path, "w") as f:
             f.write(docker_file)
 
         try:
