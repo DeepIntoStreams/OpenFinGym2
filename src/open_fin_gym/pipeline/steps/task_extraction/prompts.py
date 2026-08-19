@@ -1,7 +1,7 @@
 from pydantic import BaseModel, Field
 
 from open_fin_gym.pipeline.config import Scope
-from open_fin_gym.pipeline.db.tables import Paper, TaskType
+from open_fin_gym.pipeline.db.tables import Paper
 
 
 def build_paper_summary_prompt(
@@ -12,9 +12,7 @@ def build_paper_summary_prompt(
     return f"""
 ## Your Task
 
-You are designing a machine learning assessment based on the experiment(s) described in a science paper.
-
-Papers in this scope are usually {scope.task_type} tasks, but classify this one from the experiment it describes.
+You are designing a machine learning {scope.task_type} assessment based on the experiment(s) described in a science paper.
 
 The specification of the task should consist of:
 
@@ -117,9 +115,6 @@ class AssessmentMetric(BaseModel):
 class PaperTaskSpecification(BaseModel):
     reasoning: str
     task_name: str = Field(description="Name id assigned to the task")
-    task_type: TaskType = Field(
-        description="Whether the user predicts outputs from test inputs, or samples them"
-    )
     task_description: str = Field(
         description="Description of the ML task including the data and how it is assessed"
     )
