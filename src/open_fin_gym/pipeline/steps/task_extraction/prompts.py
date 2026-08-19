@@ -3,7 +3,6 @@ from pydantic import BaseModel, Field
 from open_fin_gym.pipeline.config import Scope
 from open_fin_gym.pipeline.db.tables import Paper, TaskType
 
-
 TASK_EXAMPLES = {
     TaskType.FORECASTING: """
 ## Example: forecasting
