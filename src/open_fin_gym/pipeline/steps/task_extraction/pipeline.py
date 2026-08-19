@@ -106,6 +106,7 @@ class TaskExtractor:
                     scope_id=scope.id,
                     paper_id=paper.paper_id,
                     task_name=task_summary.task_name,
+                    task_type=scope.task_type,
                     description=task_summary.task_description,
                     status=TaskCandidateStatus.NEW,
                 )

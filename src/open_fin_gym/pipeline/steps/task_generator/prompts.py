@@ -3,16 +3,38 @@ from pydantic import BaseModel, Field
 from open_fin_gym.pipeline.db.tables import (
     BaseDatasetCandidate,
     MetricCandidate,
+    TaskType,
 )
 from open_fin_gym.pipeline.steps.task_extraction.prompts import (
     AssessmentMetric,
     Dataset,
 )
 
+# Whether row i of the user output corresponds to row i of the test target, which
+# decides whether the verifier can compare them row by row
+ROW_CORRESPONDENCE_BY_TASK_TYPE = {
+    TaskType.FORECASTING: (
+        "Each row of the user output matches the same row of the test target."
+    ),
+    TaskType.GENERATION: (
+        "The user samples their output, so compare the two datasets as "
+        "distributions and do not assume the rows are paired."
+    ),
+}
+
+# Prompts are built before the generator's error handling, so an unhandled task type
+# would abort a run that has already spent LLM calls. Fail on import instead.
+if set(ROW_CORRESPONDENCE_BY_TASK_TYPE) != set(TaskType):
+    raise ValueError(
+        f"No row correspondence defined for task type(s) "
+        f"{sorted(set(TaskType) - set(ROW_CORRESPONDENCE_BY_TASK_TYPE))}"
+    )
+
 
 class TaskSpecification(BaseModel):
     id: int = Field(description="Task id")
     task_name: str = Field(description="Name id assigned to the task")
+    task_type: TaskType = Field(description="Whether outputs are predicted or sampled")
     task_description: str = Field(
         description="Description of the ML task including the data and how it is assessed"
     )
@@ -60,16 +82,16 @@ def convert_metric(d: MetricCandidate) -> AssessmentMetric:
     )
 
 
-def join_datasets(datasets: list[Dataset]) -> str:
-    return "\n\t".join([f"- {x.model_dump()}" for x in datasets])
+def join_specs(specs: list[Dataset] | list[AssessmentMetric]) -> str:
+    return "\n\t".join([f"- {x.model_dump()}" for x in specs])
 
 
 def build_dataset_download_prompt(task_spec: TaskSpecification) -> str:
 
-    training_inputs = join_datasets(task_spec.training_inputs)
-    training_targets = join_datasets(task_spec.training_targets)
-    test_inputs = join_datasets(task_spec.test_inputs)
-    test_targets = join_datasets(task_spec.test_targets)
+    training_inputs = join_specs(task_spec.training_inputs)
+    training_targets = join_specs(task_spec.training_targets)
+    test_inputs = join_specs(task_spec.test_inputs)
+    test_targets = join_specs(task_spec.test_targets)
 
     return f"""
 You are given the specification of a machine learning task. You should write
@@ -86,6 +108,7 @@ Notes:
 - The datasets should be written to the files assigned in the specification
 - The files should be written to the same folder as the script
 - If any random sampling is used, the process should be seeded
+- A dataset category may be empty, in which case skip it rather than writing a placeholder file
 
 Specification:
 
@@ -103,9 +126,10 @@ Test target datasets:
 
 
 def build_metric_prompt(task_spec: TaskSpecification) -> str:
-    test_outputs = join_datasets(task_spec.test_outputs)
-    test_targets = join_datasets(task_spec.test_targets)
-    metrics = join_datasets(task_spec.metrics)
+    test_outputs = join_specs(task_spec.test_outputs)
+    test_targets = join_specs(task_spec.test_targets)
+    metrics = join_specs(task_spec.metrics)
+    row_correspondence = ROW_CORRESPONDENCE_BY_TASK_TYPE[task_spec.task_type]
     return f"""
 You are given the specification of a machine learning task. You should write
 a Python script that assess the test_output produced by the user against the
@@ -113,6 +137,8 @@ target test dataset. The script should retrieve the users output, and the test
 target data, and apply the set of assessment metrics. It should then save the
 results as a json file containing a dictionary of individual metric results. The
 results should be written to `/logs/verifier/reward.json`.
+
+{row_correspondence}
 
 You should also produce a list of Python requirements required by the assessment script.
 
