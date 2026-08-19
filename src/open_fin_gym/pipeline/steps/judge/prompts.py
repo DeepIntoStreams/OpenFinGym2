@@ -18,6 +18,7 @@ Paper categories: {", ".join(paper.categories) or "(none)"}
 Decision policy:
 - Accept only if there is **STRONG EVIDENCE** of in-scope ML work.
 - Reject obvious surveys, position papers, theory-only papers, or clearly off-scope domains.
+- Reject if the abstract clearly shows the other task type; judge by what the experiment does, not the method it uses, so a generative model used to forecast is a forecasting paper.
 - When uncertain or evidence is weak, reject by default.
 
 Task:
@@ -43,10 +44,11 @@ Paper fulltext excerpt:
 {excerpt}
 
 Hard acceptance rule:
-- Accept only if ALL THREE conditions are satisfied:
+- Accept only if ALL FOUR conditions are satisfied:
   (1) the paper has STRONG EVIDENCE of relevance to this scope, especially in terms of experiments, datasets, and evaluation metrics; AND
   (2) there is STRONG EVIDENCE of detailed setups for ALL three: experiments, datasets, and evaluation metrics; AND
-  (3) 'data_publicly_available' (decided below) is 'true'.
+  (3) 'data_publicly_available' (decided below) is 'true'; AND
+  (4) the experiment matches the scope task type: forecasting means the paper predicts outputs from given inputs, generation means it samples outputs from a fitted distribution. Judge this by what the experiment does, not by the method it uses; a generative model used to forecast is a forecasting paper.
 - Reject papers that are off-topic, surveys, position papers, or theory-only work.
 - If evidence is weak, incomplete, or ambiguous, reject by default.
 
