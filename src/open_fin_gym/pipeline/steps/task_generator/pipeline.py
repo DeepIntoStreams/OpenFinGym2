@@ -51,6 +51,7 @@ class TaskGenerator:
             "train.Dockerfile.j2"
         )
         self.test_docker_template = self.template_env.get_template("test.Dockerfile.j2")
+        self.test_sh_template = self.template_env.get_template("test.sh.j2")
         assert isinstance(self.llm, BaseChatModel)
 
     def run(self, output_path: Path, scopes: list[Scope]) -> None:
@@ -135,6 +136,21 @@ class TaskGenerator:
                 task_path = scripts_path / f"{task_spec.task_name}"
                 task_path.mkdir(exist_ok=True)
 
+                with open(task_path / "train.py", "w") as f:
+                    f.write(dataset_scripts.training_script)
+
+                with open(task_path / "test.py", "w") as f:
+                    f.write(dataset_scripts.testing_script)
+
+                with open(task_path / "grader.py", "w") as f:
+                    f.write(assessment_script.assessment_script)
+
+                with open(task_path / "requirements.txt", "w") as f:
+                    f.write("\n".join(requirements))
+
+                with open(task_path / "instruction.md", "w") as f:
+                    f.write(instructions)
+
                 # Test Dockerfiles build and data is retrieved
                 train_build_success, train_build_message = test_train_download_script(
                     self.train_docker_template,
@@ -151,6 +167,7 @@ class TaskGenerator:
 
                 test_build_success, test_build_message = test_test_download_script(
                     self.test_docker_template,
+                    self.test_sh_template,
                     dataset_scripts.testing_script,
                     assessment_script.assessment_script,
                     requirements,
@@ -160,21 +177,6 @@ class TaskGenerator:
                     raise RuntimeError(
                         f"Test DockerFile build failed - {test_build_message}"
                     )
-
-                with open(task_path / "train.py", "w") as f:
-                    f.write(dataset_scripts.training_script)
-
-                with open(task_path / "test.py", "w") as f:
-                    f.write(dataset_scripts.testing_script)
-
-                with open(task_path / "grader.py", "w") as f:
-                    f.write(assessment_script.assessment_script)
-
-                with open(task_path / "requirements.txt", "w") as f:
-                    f.write("\n".join(requirements))
-
-                with open(task_path / "instruction.md", "w") as f:
-                    f.write(instructions)
 
                 new_task = Task(
                     task_candidate_id=task_spec.id,

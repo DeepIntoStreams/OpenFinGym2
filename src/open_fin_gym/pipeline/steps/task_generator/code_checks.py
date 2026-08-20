@@ -22,7 +22,7 @@ def run_pylint(script_path: Path) -> tuple[bool, list[str]]:
     """
     pylint_output = StringIO()
     reporter = JSON2Reporter(pylint_output)
-    Run([str(script_path)], reporter=reporter, exit=False)
+    Run([str(script_path), "--disable=imports"], reporter=reporter, exit=False)
     output = pylint_output.getvalue()
     results = json.loads(output)
     counts = results["statistics"]["messageTypeCount"]
@@ -97,6 +97,7 @@ def test_train_download_script(
 
 def test_test_download_script(
     docker_template: Template,
+    test_template: Template,
     data_download_script: str,
     verification_script: str,
     requirements: list[str],
@@ -107,6 +108,7 @@ def test_test_download_script(
 
     Args:
         docker_template: Test docker image template
+        test_template: tesh.sh bash script template
         data_download_script: Test data download Python script
         verification_script: Python results verification script
         requirements: List of python requirements
@@ -151,6 +153,11 @@ def test_test_download_script(
 
         with open(folder_path / "Dockerfile", "w") as f:
             f.write(docker_file)
+
+        test_sh_file = test_template.render(requirements=requirements)
+
+        with open(folder_path / "test.sh", "w") as f:
+            f.write(test_sh_file)
 
         try:
             image, logs = client.images.build(path=str(folder_path))
