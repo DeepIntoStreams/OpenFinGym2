@@ -64,6 +64,8 @@ class TaskCritic:
                 task_id=spec.id,
                 scope_id=scope.id,
                 approved=False,
+                score=None,
+                confidence=None,
                 reasoning=f"Rejected on structural checks: {'; '.join(issues)}",
             )
 
@@ -79,21 +81,31 @@ class TaskCritic:
             reasoning = (
                 f"{response.issues}\n\n"
                 f"Consistency: {response.consistency_assessment}\n"
-                f"Completeness: {response.completeness_assessment}"
+                f"Completeness: {response.completeness_assessment}\n"
+                f"Data Availability: {response.data_availability_assessment}"
             )
+            score = response.score
+            confidence = response.confidence
         except Exception as e:
             logger.error(
                 f"Task critique failed for task {spec.id} scope {scope.id}: {e}"
             )
             approved = False
             reasoning = f"LLM error during critique: {e}"
+            score = None
+            confidence = None
 
         status = (
             TaskCandidateStatus.APPROVED if approved else TaskCandidateStatus.REJECTED
         )
         self.set_status(spec.id, status)
         return CritiqueResult(
-            task_id=spec.id, scope_id=scope.id, approved=approved, reasoning=reasoning
+            task_id=spec.id,
+            scope_id=scope.id,
+            approved=approved,
+            score=score,
+            confidence=confidence,
+            reasoning=reasoning,
         )
 
     def set_status(self, task_id: int, status: TaskCandidateStatus) -> None:

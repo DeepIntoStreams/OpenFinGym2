@@ -38,6 +38,11 @@ def structural_issues(spec: TaskSpecification) -> list[str]:
     for name, datasets in groups.items():
         if name in required and not datasets:
             issues.append(f"{name} is empty")
+        for d in datasets:
+            if not d.source and not d.download_link:
+                issues.append(
+                    f"{name} dataset '{d.name}' has no source or download link"
+                )
 
     if not spec.metrics:
         issues.append("assessment_metrics is empty")

@@ -1,3 +1,4 @@
+# Uncalibrated initial guess — revisit once there's a real score distribution
 threshold_default: 7.0
 llm:
   _target_: langchain_openai.chat_models.ChatOpenAI

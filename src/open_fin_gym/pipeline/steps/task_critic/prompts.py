@@ -48,21 +48,31 @@ Checks to make:
 3) Metric validity: do the metrics make sense given the test outputs/targets, and do
    they reference datasets actually present above?
 4) Scope fit: does this task belong to the stated scope?
+5) Data Availability: for each dataset, does the stated source/download_link
+   plausibly point to something a script could retrieve without authentication
+   or a paid subscription? A named vendor (e.g. Bloomberg, Refinitiv, WRDS) is
+   not itself disqualifying if the same series is a standard public-market
+   quantity (prices, returns, volumes, OHLCV, standard macro indicators) —
+   only flag it if the specific instrument, period, or frequency is vague or
+   unspecified. Flag genuinely proprietary content (hand-curated labels,
+   broker-internal order flow, full-depth order-book data) as an issue.
 
 If evidence is weak, ambiguous, or incomplete, reject by default.
 
 Task:
 1) Provide `consistency_assessment`.
 2) Provide `completeness_assessment`.
-3) Provide `issues`: concrete problems found, empty string if none.
-4) Decide `label`: accepted/rejected, consistent with the assessments and issues.
-5) Give `score` in `[0, 10]` and `confidence` in `[0.0, 1.0]`.
+3) Provide 'data_availability_assessment'.
+4) Provide `issues`: concrete problems found, empty string if none.
+5) Decide `label`: accepted/rejected, consistent with the assessments and issues.
+6) Give `score` in `[0, 10]` and `confidence` in `[0.0, 1.0]`.
 """.strip()
 
 
 class TaskCritique(BaseModel):
     consistency_assessment: str
     completeness_assessment: str
+    data_availability_assessment: str
     issues: str
     label: JudgeLabel
     score: float = Field(0.0, ge=0.0, le=10.0)
