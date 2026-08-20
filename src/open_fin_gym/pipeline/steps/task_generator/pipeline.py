@@ -16,7 +16,11 @@ from open_fin_gym.pipeline.db.tables import (
 )
 from open_fin_gym.pipeline.db.utils import set_task_candidate_status
 
-from .code_checks import test_test_download_script, test_train_download_script
+from .code_checks import (
+    run_pylint,
+    test_test_download_script,
+    test_train_download_script,
+)
 from .config import TaskGenerationConfig
 from .prompts import (
     Assessment,
@@ -136,14 +140,36 @@ class TaskGenerator:
                 task_path = scripts_path / f"{task_spec.task_name}"
                 task_path.mkdir(exist_ok=True)
 
+                # Write files and run PyLint over generated Python scripts
                 with open(task_path / "train.py", "w") as f:
                     f.write(dataset_scripts.training_script)
+
+                train_pass, pylint_messages = run_pylint(task_path / "train.py")
+
+                if not train_pass:
+                    raise RuntimeError(
+                        f"PyLint detected the following errors in the train data script \n\n{pylint_messages}"
+                    )
 
                 with open(task_path / "test.py", "w") as f:
                     f.write(dataset_scripts.testing_script)
 
-                with open(task_path / "grader.py", "w") as f:
+                test_pass, pylint_messages = run_pylint(task_path / "test.py")
+
+                if not test_pass:
+                    raise RuntimeError(
+                        f"PyLint detected the following errors in the test data script \n\n{pylint_messages}"
+                    )
+
+                with open(task_path / "verifier.py", "w") as f:
                     f.write(assessment_script.assessment_script)
+
+                verifier_pass, pylint_messages = run_pylint(task_path / "verifier.py")
+
+                if not verifier_pass:
+                    raise RuntimeError(
+                        f"PyLint detected the following errors in the verifier script \n\n{pylint_messages}"
+                    )
 
                 with open(task_path / "requirements.txt", "w") as f:
                     f.write("\n".join(requirements))

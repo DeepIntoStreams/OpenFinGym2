@@ -10,7 +10,7 @@ from pylint.lint import Run
 from pylint.reporters.json_reporter import JSON2Reporter
 
 
-def run_pylint(script_path: Path) -> tuple[bool, list[str]]:
+def run_pylint(script_path: Path) -> tuple[bool, str]:
     """
     Run pylint and report any code errors or fatal issues
 
@@ -33,6 +33,7 @@ def run_pylint(script_path: Path) -> tuple[bool, list[str]]:
     error_messages = [
         m["message"] for m in results["messages"] if m["type"] in {"fatal", "error"}
     ]
+    error_messages = "\n".join([f"- {x}" for x in error_messages])
 
     return False, error_messages
 
@@ -64,12 +65,6 @@ def test_train_download_script(
 
         with open(script_path, "w") as f:
             f.write(download_script)
-
-        pylint_pass, pylint_messages = run_pylint(script_path)
-
-        if not pylint_pass:
-            message = "\n".join([f"- {x}" for x in pylint_messages])
-            return False, f"PyLint detected the following errors\n\n{message}"
 
         docker_file = docker_template.render(requirements=requirements)
 
@@ -128,26 +123,8 @@ def test_test_download_script(
         with open(data_script_path, "w") as f:
             f.write(data_download_script)
 
-        pylint_pass, pylint_messages = run_pylint(data_script_path)
-
-        if not pylint_pass:
-            message = "\n".join([f"- {x}" for x in pylint_messages])
-            return (
-                False,
-                f"PyLint detected the following errors in the data loading script\n\n{message}",
-            )
-
         with open(verifier_script_path, "w") as f:
             f.write(verification_script)
-
-        pylint_pass, pylint_messages = run_pylint(verifier_script_path)
-
-        if not pylint_pass:
-            message = "\n".join([f"- {x}" for x in pylint_messages])
-            return (
-                False,
-                f"PyLint detected the following errors in the verifier script\n\n{message}",
-            )
 
         docker_file = docker_template.render(requirements=requirements)
 
