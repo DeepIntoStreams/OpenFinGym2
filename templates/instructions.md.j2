@@ -29,7 +29,7 @@ File path: `{{ x.filename }}`
 {% endfor %}
 
 ## Assessment
-
+{% if test_inputs %}
 ### Test Inputs
 
 {% for x in test_inputs %}
@@ -39,12 +39,17 @@ File path: `{{ x.filename }}`
 
 File path: `{{ x.filename }}`
 {% endfor %}
-
+{% endif %}
 ## Assessment Process
 
+{% if test_inputs %}
 Using the training inputs and targets to design and train your model, you should then
-produced the expected test-output datasets conditioned on the test-inputs. You should
-write your results to the specified file(s) in the folder `/logs/artifacts/`.
+produce the expected test-output datasets conditioned on the test-inputs.
+{% else %}
+Using the training data to design and train your model, you should then produce the
+expected test-output datasets.
+{% endif %}
+You should write your results to the specified file(s) in the folder `/logs/artifacts/`.
 
 ### Expected Outputs
 

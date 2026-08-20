@@ -11,6 +11,7 @@ from open_fin_gym.pipeline.db.tables import (
     MetricCandidate,
     TaskCandidate,
     TaskCandidateStatus,
+    TaskType,
     TestInputDatasetCandidate,
     TestOutputDatasetCandidate,
     TestTargetDatasetCandidate,
@@ -46,13 +47,19 @@ def _dataset(cls, name: str, filename: str):
 
 
 def make_task_candidate(
-    db, scope_id: str, paper_id: str = "p1", *, include_test_outputs: bool = True
+    db,
+    scope_id: str,
+    paper_id: str = "p1",
+    *,
+    task_type: TaskType = TaskType.FORECASTING,
+    include_test_outputs: bool = True,
 ) -> int:
     with Session(db) as session:
         candidate = TaskCandidate(
             scope_id=scope_id,
             paper_id=paper_id,
             task_name="task",
+            task_type=task_type,
             description="desc",
             status=TaskCandidateStatus.NEW,
         )

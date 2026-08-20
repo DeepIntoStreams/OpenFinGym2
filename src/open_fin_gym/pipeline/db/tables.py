@@ -131,6 +131,7 @@ class TaskCandidate(Base):
     paper_id = Column(String, index=True)
     new = Column(Boolean, default=True)
     status = Column(Enum(TaskCandidateStatus), index=True)
+    task_type = Column(Enum(TaskType))
     task_name = Column(String)
     description = Column(String)
     training_inputs: Mapped[List["TrainInputDatasetCandidate"]] = relationship(

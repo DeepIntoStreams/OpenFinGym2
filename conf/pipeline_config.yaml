@@ -50,18 +50,21 @@ scopes:
     enabled: true
     categories: [ q-fin.CP, q-fin.ST, q-fin.RM, q-fin.PM, cs.LG, stat.ML ]
     queries:
-      - 'all:("generative model" OR "generative adversarial" OR "GAN" OR "variational autoencoder" OR "VAE"
+      - '(all:("generative model" OR "generative adversarial" OR "GAN" OR "variational autoencoder" OR "VAE"
         OR "diffusion model" OR "normalizing flow" OR "score-based")
         AND ("financial time series" OR "asset return" OR "stock price" OR "stock return" OR "return series"
-        OR "price series" OR "implied volatility" OR "realized volatility" OR "volatility surface" OR "market data")'
-      - 'all:("synthetic data" OR "scenario generation" OR "market scenario" OR "synthetic market data"
+        OR "price series" OR "implied volatility" OR "realized volatility" OR "volatility surface" OR "market data")
+        ANDNOT ti:("forecasting" OR "forecast" OR "prediction" OR "predicting" OR "predictability"))'
+      - '(all:("synthetic data" OR "scenario generation" OR "market scenario" OR "synthetic market data"
         OR "data augmentation" OR "simulation")
         AND ("financial time series" OR "asset return" OR "portfolio" OR "risk factor" OR "loss distribution"
         OR "market risk" OR "credit spread")
-        AND ("GAN" OR "VAE" OR "diffusion" OR "copula" OR "neural network" OR "deep learning" OR "generative model")'
-      - 'all:("limit order book" OR "order book" OR "order flow" OR "market microstructure")
+        AND ("GAN" OR "VAE" OR "diffusion" OR "copula" OR "neural network" OR "deep learning" OR "generative model")
+        ANDNOT ti:("forecasting" OR "forecast" OR "prediction" OR "predicting" OR "predictability"))'
+      - '(all:("limit order book" OR "order book" OR "order flow" OR "market microstructure")
         AND ("simulation" OR "simulator" OR "generation" OR "synthetic data" OR "agent-based model")
-        AND ("GAN" OR "diffusion" OR "Transformer" OR "point process" OR "Hawkes" OR "neural network" OR "deep learning")'
+        AND ("GAN" OR "diffusion" OR "Transformer" OR "point process" OR "Hawkes" OR "neural network" OR "deep learning")
+        ANDNOT ti:("forecasting" OR "forecast" OR "prediction" OR "predicting" OR "predictability"))'
 
   - id: alpha_trading
     name: "Alpha Trading Agents"
@@ -118,7 +121,7 @@ scopes:
         AND ("forecasting" OR "prediction" OR "estimation" OR "backtesting")
         AND ("portfolio" OR "asset return" OR "market risk" OR "systemic risk" OR "loss distribution"
         OR "volatility")'
-      - 'all:("stress test" OR "stress testing" OR "stress scenario" OR "adverse scenario" OR "scenario generation")
+      - 'all:("stress test" OR "stress testing" OR "adverse scenario")
         AND ("portfolio" OR "financial institution" OR "market risk" OR "systemic risk"
         OR "loss distribution" OR "bank capital" OR "regulatory capital" OR "credit spread")'
       - 'all:("regime switching" OR "market regime" OR "extreme value theory" OR "tail event" OR "crisis period")

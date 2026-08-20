@@ -30,6 +30,7 @@ def scope_context(scope: Scope) -> str:
     categories = ", ".join(scope.categories) or "(none)"
     return (
         f"Scope name: {scope.name}\n"
+        f"Scope task type: {scope.task_type}\n"
         f"Scope description: {scope.description}\n"
         f"Scope categories: {categories}\n"
         f"Scope queries:\n{query_block}"
