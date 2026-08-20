@@ -1,3 +1,7 @@
+"""
+Pipeline configuration classes
+"""
+
 from dataclasses import dataclass, field
 
 from open_fin_gym.pipeline.db.tables import TaskType
