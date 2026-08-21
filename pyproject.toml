@@ -41,3 +41,6 @@ dev = [
 
 [tool.taskipy.tasks]
 pipeline = "python -m open_fin_gym.pipeline"
+
+[tool.pytest.ini_options]
+python_classes = ["PytestCollect*"]

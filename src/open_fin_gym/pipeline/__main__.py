@@ -12,6 +12,7 @@ from .db.tables import Base
 from .steps.judge.pipeline import Judge
 from .steps.retrieval.pipeline import PaperRetrieval
 from .steps.scrape_papers.pipeline import PaperScrapingPipeline
+from .steps.task_critic.pipeline import TaskCritic
 from .steps.task_export.pipeline import TaskExporter
 from .steps.task_extraction.pipeline import TaskExtractor
 from .steps.task_generator.pipeline import TaskGenerator
@@ -64,6 +65,9 @@ def run_pipeline(cfg: PipelineConfig) -> None:
 
         task_extractor = TaskExtractor(db_engine, cfg.task_extractor)
         task_extractor.run(output_dir, scopes)
+
+        task_critic = TaskCritic(db_engine, cfg.task_critic)
+        task_critic.run(output_dir, scopes)
 
         task_generator = TaskGenerator(db_engine, cfg.task_generator)
         task_generator.run(output_dir, scopes)

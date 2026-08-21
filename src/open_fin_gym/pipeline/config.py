@@ -5,6 +5,7 @@ from open_fin_gym.pipeline.db.tables import TaskType
 from .steps.judge.config import JudgeConfig
 from .steps.retrieval.config import RetrievalConfig
 from .steps.scrape_papers.config import ScrapingConfig
+from .steps.task_critic.config import TaskCriticConfig
 from .steps.task_export.config import TaskExportConfig
 from .steps.task_extraction.config import TaskExtractionConfig
 from .steps.task_generator.config import TaskGenerationConfig
@@ -43,6 +44,7 @@ class PipelineConfig:
     retrieval: RetrievalConfig
     judge: JudgeConfig
     task_extractor: TaskExtractionConfig
+    task_critic: TaskCriticConfig
     task_generator: TaskGenerationConfig
     task_exporter: TaskExportConfig
     scopes: list[Scope]
