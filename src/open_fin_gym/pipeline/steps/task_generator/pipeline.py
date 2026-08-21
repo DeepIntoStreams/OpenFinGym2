@@ -19,6 +19,11 @@ from open_fin_gym.pipeline.steps.task_extraction.utils import (
     build_task_specification,
 )
 
+from .code_checks import (
+    run_pylint,
+    test_test_download_script,
+    test_train_download_script,
+)
 from .config import TaskGenerationConfig
 from .prompts import (
     Assessment,
@@ -37,9 +42,20 @@ class TaskGenerator:
         self.db = db
         self.llm: BaseChatModel = instantiate(cfg.llm)
         self.template_env = Environment(loader=FileSystemLoader(cfg.templates_path))
+
+        def strformat(v, fmt):
+            return fmt % v
+
+        self.template_env.filters["strformat"] = strformat
+
         self.instructions_template = self.template_env.get_template(
             "instructions.md.j2"
         )
+        self.train_docker_template = self.template_env.get_template(
+            "train.Dockerfile.j2"
+        )
+        self.test_docker_template = self.template_env.get_template("test.Dockerfile.j2")
+        self.test_sh_template = self.template_env.get_template("test.sh.j2")
         assert isinstance(self.llm, BaseChatModel)
 
     def run(self, output_path: Path, scopes: list[Scope]) -> None:
@@ -108,20 +124,69 @@ class TaskGenerator:
                 task_path = scripts_path / f"{task_spec.task_name}"
                 task_path.mkdir(exist_ok=True)
 
+                # Write files and run PyLint over generated Python scripts
                 with open(task_path / "train.py", "w") as f:
                     f.write(dataset_scripts.training_script)
+
+                train_pass, pylint_messages = run_pylint(task_path / "train.py")
+
+                if not train_pass:
+                    raise RuntimeError(
+                        f"PyLint detected the following errors in the train data script \n\n{pylint_messages}"
+                    )
 
                 with open(task_path / "test.py", "w") as f:
                     f.write(dataset_scripts.testing_script)
 
-                with open(task_path / "grader.py", "w") as f:
+                test_pass, pylint_messages = run_pylint(task_path / "test.py")
+
+                if not test_pass:
+                    raise RuntimeError(
+                        f"PyLint detected the following errors in the test data script \n\n{pylint_messages}"
+                    )
+
+                with open(task_path / "verifier.py", "w") as f:
                     f.write(assessment_script.assessment_script)
+
+                verifier_pass, pylint_messages = run_pylint(task_path / "verifier.py")
+
+                if not verifier_pass:
+                    raise RuntimeError(
+                        f"PyLint detected the following errors in the verifier script \n\n{pylint_messages}"
+                    )
 
                 with open(task_path / "requirements.txt", "w") as f:
                     f.write("\n".join(requirements))
 
                 with open(task_path / "instruction.md", "w") as f:
                     f.write(instructions)
+
+                # Test Dockerfiles build and data is retrieved
+                train_build_success, train_build_message = test_train_download_script(
+                    self.train_docker_template,
+                    dataset_scripts.training_script,
+                    requirements,
+                    [x.filename for x in task_spec.training_inputs]
+                    + [x.filename for x in task_spec.training_targets]
+                    + [x.filename for x in task_spec.test_inputs],
+                )
+                if not train_build_success:
+                    raise RuntimeError(
+                        f"Train DockerFile build failed - {train_build_message}"
+                    )
+
+                test_build_success, test_build_message = test_test_download_script(
+                    self.test_docker_template,
+                    self.test_sh_template,
+                    dataset_scripts.testing_script,
+                    assessment_script.assessment_script,
+                    requirements,
+                    [x.filename for x in task_spec.test_targets],
+                )
+                if not test_build_success:
+                    raise RuntimeError(
+                        f"Test DockerFile build failed - {test_build_message}"
+                    )
 
                 new_task = Task(
                     task_candidate_id=task_spec.id,

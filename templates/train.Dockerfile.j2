@@ -6,5 +6,5 @@ RUN useradd -ms /bin/bash agent
 USER agent
 WORKDIR /home/agent
 COPY data.py data.py
-RUN uv run {{ requirements }} data.py
+RUN uv run {{ requirements | map("strformat", "--with %s") | join(" ") }} data.py
 RUN rm data.py

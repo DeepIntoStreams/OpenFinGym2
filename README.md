@@ -9,7 +9,7 @@ installation instructions
 The pipeline can then be run using
 
 ```commandline
-uv run pipeline
+uv run task pipeline
 ```
 
 If using MlFlow for LLM tracking you should run a client with
