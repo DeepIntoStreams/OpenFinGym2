@@ -45,3 +45,4 @@ dev = [
 [tool.taskipy.tasks]
 pipeline = "python -m open_fin_gym.pipeline"
 docs = { cmd = "sphinx-build -W -b html docs/source docs/build", help="Build docs"}
+mlflow = "mlflow server --host 127.0.0.1 --port 8080 --backend-store-uri sqlite:///./mlruns.db"

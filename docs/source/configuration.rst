@@ -1,3 +1,7 @@
+.. _configuration:
+
 *************
 Configuration
 *************
+
+TODO

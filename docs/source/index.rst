@@ -1,6 +1,6 @@
-**********
+##########
 OpenFinGym
-**********
+##########
 
 **Agentic Financial Task Creation Pipeline**
 
