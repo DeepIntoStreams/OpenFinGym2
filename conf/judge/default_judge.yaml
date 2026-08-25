@@ -8,6 +8,6 @@ ranking_recency_half_life_days: 365
 threshold_default: 7.0
 llm:
   _target_: langchain_openai.chat_models.ChatOpenAI
-  model: gpt-4.1-mini
+  model: gpt-5.4-mini
   # The judge is a scoring gate, so keep it deterministic across runs
   temperature: 0
