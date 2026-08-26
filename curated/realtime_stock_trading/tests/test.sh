@@ -1,9 +1,8 @@
 #!/bin/bash
 set -e
 mkdir -p /logs/verifier
-python -c "
-import json, os, urllib.request
+uv run --with requests python -c "
+import json, os, requests
 url = os.environ.get('BROKER_URL', 'http://broker:8000') + '/score'
-with urllib.request.urlopen(url, timeout=30) as r:
-    json.dump(json.load(r), open('/logs/verifier/reward.json', 'w'), indent=2)
+json.dump(requests.get(url, timeout=30).json(), open('/logs/verifier/reward.json', 'w'), indent=2)
 "
