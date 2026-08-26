@@ -1,0 +1,28 @@
+services:
+  main:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      broker:
+        condition: service_healthy
+    environment:
+      BROKER_URL: http://broker:8000
+    command: sleep infinity
+
+  broker:
+    build:
+      context: .
+      dockerfile: broker.Dockerfile
+    environment:
+      ALPACA_API_KEY_ID: ${ALPACA_API_KEY_ID}
+      ALPACA_API_SECRET_KEY: ${ALPACA_API_SECRET_KEY}
+    volumes:
+      - ledger:/ledger
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/healthz')"]
+      interval: 5s
+      retries: 12
+
+volumes:
+  ledger:

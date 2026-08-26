@@ -1,0 +1,34 @@
+schema_version = "1.4"
+
+[task]
+name = "openfingym/realtime_stock_trading"
+version = "1.0.0"
+description = "Live paper trading on US equities over the Alpaca API."
+authors = []
+keywords = ["trading", "realtime", "equities"]
+
+[metadata]
+family = "realtime_trading"
+category = "machine-learning"
+difficulty_explanation = "Requires an online policy under live market data with no look-ahead."
+
+[verifier]
+environment_mode = "shared"
+timeout_sec = 300.0
+
+[agent]
+timeout_sec = 1800.0
+
+[environment]
+network_mode = "allowlist"
+allowed_hosts = ["data.alpaca.markets", "paper-api.alpaca.markets"]
+build_timeout_sec = 600.0
+os = "linux"
+cpus = 2
+memory_mb = 2048
+
+[environment.env]
+ALPACA_API_KEY_ID = "${ALPACA_API_KEY_ID}"
+ALPACA_API_SECRET_KEY = "${ALPACA_API_SECRET_KEY}"
+
+artifacts = [{ source = "/ledger/episode.jsonl", service = "broker" }]

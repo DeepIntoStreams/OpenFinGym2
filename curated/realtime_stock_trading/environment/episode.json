@@ -1,0 +1,12 @@
+{
+  "symbols": ["SPY", "QQQ", "IWM"],
+  "target_symbols": ["SPY", "QQQ"],
+  "context_resolutions": [
+    {"interval": "1m", "bars": 60},
+    {"interval": "5m", "bars": 24},
+    {"interval": "1h", "bars": 24}
+  ],
+  "data_resolution": "1m",
+  "max_steps": 10,
+  "step_interval_sec": 60
+}

@@ -131,3 +131,6 @@ mlruns.db
 /tasks
 # Generated docs
 /docs/build/
+
+# Broker source is copied into the curated bundle at export
+/curated/*/environment/realtime/
