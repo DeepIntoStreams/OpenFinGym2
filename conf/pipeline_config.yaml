@@ -127,3 +127,30 @@ scopes:
       - 'all:("regime switching" OR "market regime" OR "extreme value theory" OR "tail event" OR "crisis period")
         AND ("portfolio" OR "asset return" OR "market risk" OR "tail risk" OR "value at risk"
         OR "expected shortfall" OR "loss distribution")'
+
+  - id: realtime_trading
+    name: "Realtime Trading Agents"
+    task_type: "trading"
+    description: >
+      Agents that place orders in a market and are judged on the resulting
+      account, including reinforcement-learning trading agents, order execution
+      and market-making policies, and live or paper-traded evaluation of
+      LLM-driven trading systems.
+    # Papers here fill in a curated bundle rather than generating a task, so the
+    # scope stays off until that route exists.
+    enabled: false
+    categories: [ q-fin.TR, q-fin.CP, q-fin.PM, cs.LG, cs.AI, stat.ML ]
+    queries:
+      - 'all:("reinforcement learning" OR "deep reinforcement learning" OR "policy gradient" OR "Q-learning"
+        OR "actor-critic")
+        AND ("trading agent" OR "trading strategy" OR "algorithmic trading" OR "automated trading"
+        OR "portfolio management")
+        AND ("reward" OR "Sharpe" OR "profit and loss" OR "PnL" OR "transaction cost" OR "drawdown")'
+      - 'all:("order execution" OR "optimal execution" OR "trade execution" OR "market making"
+        OR "execution policy")
+        AND ("reinforcement learning" OR "deep learning" OR "neural network" OR "stochastic control")
+        AND ("limit order book" OR "market impact" OR "slippage" OR "inventory" OR "implementation shortfall")'
+      - 'all:("live trading" OR "paper trading" OR "real-time trading" OR "online trading"
+        OR "trading simulator" OR "trading environment")
+        AND ("agent" OR "reinforcement learning" OR "large language model" OR "LLM")
+        AND ("backtest" OR "evaluation" OR "benchmark" OR "Sharpe" OR "PnL")'

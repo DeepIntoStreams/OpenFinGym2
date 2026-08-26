@@ -1,4 +1,4 @@
-from open_fin_gym.pipeline.db.tables import TaskType
+from open_fin_gym.pipeline.db.tables import GENERATED_TASK_TYPES, TaskType
 from open_fin_gym.pipeline.steps.task_extraction.utils import TaskSpecification
 
 REQUIRED_GROUPS_BY_TASK_TYPE: dict[TaskType, set[str]] = {
@@ -16,10 +16,10 @@ REQUIRED_GROUPS_BY_TASK_TYPE: dict[TaskType, set[str]] = {
     },
 }
 
-if set(REQUIRED_GROUPS_BY_TASK_TYPE) != set(TaskType):
+if set(REQUIRED_GROUPS_BY_TASK_TYPE) != GENERATED_TASK_TYPES:
     raise ValueError(
         f"No required-group set defined for task type(s) "
-        f"{sorted(set(TaskType) - set(REQUIRED_GROUPS_BY_TASK_TYPE))}"
+        f"{sorted(GENERATED_TASK_TYPES - set(REQUIRED_GROUPS_BY_TASK_TYPE))}"
     )
 
 
