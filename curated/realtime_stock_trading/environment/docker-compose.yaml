@@ -20,7 +20,8 @@ services:
     volumes:
       - ledger:/ledger
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/healthz')"]
+      # The uv base image has no system python, so run the check through uv
+      test: ["CMD", "uv", "run", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/healthz')"]
       interval: 5s
       retries: 12
 

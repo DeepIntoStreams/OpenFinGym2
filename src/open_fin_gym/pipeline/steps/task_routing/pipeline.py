@@ -8,6 +8,7 @@ from langchain_core.language_models import BaseChatModel
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
+from open_fin_gym import realtime
 from open_fin_gym.pipeline.config import Scope
 from open_fin_gym.pipeline.db.tables import (
     CURATED_TASK_TYPES,
@@ -120,6 +121,17 @@ class TaskRouter:
             shutil.rmtree(task_dir)
         shutil.copytree(
             bundle_path, task_dir, ignore=shutil.ignore_patterns("descriptor.toml")
+        )
+
+        # The broker runs from this source inside the sidecar, so ship it rather
+        # than relying on a copy left in the bundle directory.
+        broker_dir = task_dir / "environment" / "realtime"
+        if broker_dir.exists():
+            shutil.rmtree(broker_dir)
+        shutil.copytree(
+            Path(realtime.__file__).parent,
+            broker_dir,
+            ignore=shutil.ignore_patterns("__pycache__"),
         )
 
         episode = {**descriptor["defaults"], **config.model_dump(exclude={"reasoning"})}
