@@ -3,9 +3,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    # Only ordering, not readiness: podman does not run compose healthchecks, so
+    # the agent waits for the broker itself rather than relying on the runtime.
     depends_on:
-      broker:
-        condition: service_healthy
+      - broker
     environment:
       BROKER_URL: http://broker:8000
     command: sleep infinity

@@ -14,9 +14,18 @@ no look-ahead: you only ever see prices up to the current step.
 The broker is reachable at `$BROKER_URL` (`http://broker:8000`).
 
 ```python
-import os, requests
+import os, time, requests
 
 broker = os.environ["BROKER_URL"]
+
+# The broker may still be starting when you begin
+for _ in range(60):
+    try:
+        requests.get(f"{broker}/healthz", timeout=2).raise_for_status()
+        break
+    except requests.RequestException:
+        time.sleep(2)
+
 obs = requests.post(f"{broker}/reset").json()
 
 while True:
