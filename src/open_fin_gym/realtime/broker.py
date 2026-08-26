@@ -13,9 +13,9 @@ INTERVALS = {
     "1h": ("1Hour", 3600),
 }
 
-# A bar older than this many data intervals means the session is closed or the
-# feed has stalled; either way the episode cannot be scored fairly.
-STALE_BARS = 5
+# Live quotes update sub-second, so anything this old means the feed has
+# stalled and the episode cannot be priced fairly.
+STALE_QUOTE_SEC = 60
 
 
 class MarketClosedError(RuntimeError):
@@ -57,7 +57,6 @@ class Broker:
         self.step_index = 0
         self.started = False
         self.last_equity = 0.0
-        self.next_step_at = 0.0
 
     def reset(self) -> dict:
         """
@@ -71,7 +70,6 @@ class Broker:
         self.step_index = 0
         self.started = True
         self.last_equity = float(self.client.account()["equity"])
-        self.next_step_at = 0.0
         return self._observation()
 
     def step(self, action: dict) -> dict:
@@ -87,14 +85,11 @@ class Broker:
         if not self.started:
             raise RuntimeError("reset() must be called before step()")
 
-        # Hold the agent to the episode cadence so every step prices a fresh bar
-        wait = self.next_step_at - time.time()
-        if wait > 0:
-            time.sleep(wait)
-
+        # Act, then let the market move before pricing the result, so the reward
+        # reflects the action rather than the spread at submission time.
         fill = self._execute(action)
         self.step_index += 1
-        self.next_step_at = time.time() + self.cfg.step_interval_sec
+        time.sleep(self.cfg.step_interval_sec)
 
         account = self.client.account()
         equity = float(account["equity"])
@@ -134,17 +129,27 @@ class Broker:
         ):
             return {"rejected": f"invalid action {action}"}
         try:
-            order = self.client.submit_order(symbol, quantity, side)
+            order = self.client.await_fill(
+                self.client.submit_order(symbol, quantity, side)["id"]
+            )
         except Exception as e:
             return {"rejected": str(e)}
-        return {"id": order["id"], "symbol": symbol, "side": side, "quantity": quantity}
+        return {
+            "id": order["id"],
+            "symbol": symbol,
+            "side": side,
+            "quantity": quantity,
+            "status": order["status"],
+            "filled_qty": order.get("filled_qty"),
+            "filled_avg_price": order.get("filled_avg_price"),
+        }
 
     def _positions(self) -> dict[str, float]:
         return {p["symbol"]: float(p["qty"]) for p in self.client.positions()}
 
     def _observation(self) -> dict:
-        latest = self.client.latest_bars(self.cfg.symbols)
-        self._assert_open(latest)
+        quotes = self.client.latest_quotes(self.cfg.symbols)
+        self._assert_open(quotes)
 
         history: dict[str, dict[str, list[dict]]] = {s: {} for s in self.cfg.symbols}
         for entry in self.cfg.context_resolutions:
@@ -160,7 +165,7 @@ class Broker:
             "step": self.step_index,
             "steps_remaining": self.cfg.max_steps - self.step_index,
             "symbols": {
-                s: {"latest_bar": latest.get(s), "recent_bars_by_interval": history[s]}
+                s: {"quote": quotes[s], "recent_bars_by_interval": history[s]}
                 for s in self.cfg.symbols
             },
             "target_symbols": self.cfg.target_symbols,
@@ -172,21 +177,20 @@ class Broker:
             },
         }
 
-    def _assert_open(self, latest: dict[str, dict]) -> None:
-        # Pre- and post-market sessions still emit bars, so the clock decides
-        # whether the session is tradable and bar age catches a stalled feed.
+    def _assert_open(self, quotes: dict[str, dict]) -> None:
+        # Pre- and post-market sessions still quote, so the clock decides whether
+        # the session is tradable and quote age catches a stalled feed.
         if not self.client.is_open():
             raise MarketClosedError("market is closed")
-        limit = INTERVALS[self.cfg.data_resolution][1] * STALE_BARS
         now = datetime.now(timezone.utc)
         for symbol in self.cfg.symbols:
-            bar = latest.get(symbol)
-            if bar is None:
-                raise MarketClosedError(f"no bar for {symbol}")
+            quote = quotes.get(symbol)
+            if quote is None:
+                raise MarketClosedError(f"no quote for {symbol}")
             age = (
-                now - datetime.fromisoformat(bar["t"].replace("Z", "+00:00"))
+                now - datetime.fromisoformat(quote["t"].replace("Z", "+00:00"))
             ).total_seconds()
-            if age > limit:
+            if age > STALE_QUOTE_SEC:
                 raise MarketClosedError(
-                    f"{symbol} bar is {int(age)}s old, market is closed"
+                    f"{symbol} quote is {int(age)}s old, feed has stalled"
                 )

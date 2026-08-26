@@ -28,8 +28,8 @@ while True:
 ```
 
 `reset` flattens the account and returns the first observation. Each `step`
-executes your action, waits for the next bar, and returns the next observation
-along with the mark-to-market change since the previous step.
+submits your order, waits for it to fill, then lets the market move before
+returning the next observation and the mark-to-market change over that interval.
 
 ## Observation
 
@@ -39,7 +39,7 @@ along with the mark-to-market change since the previous step.
   "steps_remaining": int,
   "symbols": {
     "SPY": {
-      "latest_bar": {"o","h","l","c","v","t"},
+      "quote": {"bid": float, "ask": float, "mid": float, "t": str},
       "recent_bars_by_interval": {"1m": [...], "5m": [...], "1h": [...]},
     },
     ...
@@ -61,7 +61,8 @@ One action per step:
 {"action": "buy" | "sell" | "hold", "symbol": "SPY", "quantity": 10}
 ```
 
-Orders are market orders against the live book. Quantity may be fractional and
+Orders are market orders against the live book, and a step does not return
+until the order has filled. Quantity may be fractional and
 must be positive; size it against `buying_power`. Selling more than you hold
 opens a short. `{"action": "hold"}` needs no other fields. An invalid action is
 rejected and the step still advances, so a malformed action costs you a bar.

@@ -17,7 +17,9 @@ class BundleConfig(BaseModel):
     symbols: list[str] = Field(description="Tickers the agent may trade")
     target_symbols: list[str] = Field(description="Subset of symbols the metrics score")
     data_resolution: str = Field(description="Bar cadence the episode steps at")
-    context_resolutions: list[Resolution] = Field(description="Observation history per interval")
+    context_resolutions: list[Resolution] = Field(
+        description="Observation history per interval"
+    )
     max_steps: int = Field(description="Bars per episode")
 
 
@@ -40,7 +42,9 @@ def find_bundles(bundles_path: Path, scope_id: str) -> list[tuple[Path, dict]]:
     return found
 
 
-def build_routing_prompt(scope: Scope, paper: Paper, descriptor: dict, excerpt: str) -> str:
+def build_routing_prompt(
+    scope: Scope, paper: Paper, descriptor: dict, excerpt: str
+) -> str:
     fields = "\n".join(
         f"- {name}: {spec.get('type')}. {spec.get('notes', '')}"
         + (f" Options: {spec['options']}." if "options" in spec else "")

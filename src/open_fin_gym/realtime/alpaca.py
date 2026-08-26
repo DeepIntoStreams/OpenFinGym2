@@ -1,4 +1,5 @@
 import os
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -43,11 +44,22 @@ class AlpacaClient:
     def is_open(self) -> bool:
         return bool(self._call("GET", f"{PAPER_URL}/v2/clock")["is_open"])
 
-    def latest_bars(self, symbols: list[str]) -> dict[str, dict]:
+    def latest_quotes(self, symbols: list[str]) -> dict[str, dict]:
+        # Quotes rather than bars: a minute bar only publishes once its minute
+        # closes, so at the open the newest bar is still a pre-market one.
         params = {"symbols": ",".join(symbols), "feed": self.feed}
-        return self._call("GET", f"{DATA_URL}/v2/stocks/bars/latest", params=params)[
-            "bars"
-        ]
+        quotes = self._call(
+            "GET", f"{DATA_URL}/v2/stocks/quotes/latest", params=params
+        )["quotes"]
+        return {
+            s: {
+                "bid": q["bp"],
+                "ask": q["ap"],
+                "mid": (q["bp"] + q["ap"]) / 2,
+                "t": q["t"],
+            }
+            for s, q in quotes.items()
+        }
 
     def recent_bars(
         self, symbols: list[str], interval: str, bars: int
@@ -76,6 +88,34 @@ class AlpacaClient:
         self._call(
             "DELETE", f"{PAPER_URL}/v2/positions", params={"cancel_orders": "true"}
         )
+
+    def order(self, order_id: str) -> dict:
+        return self._call("GET", f"{PAPER_URL}/v2/orders/{order_id}")
+
+    def await_fill(self, order_id: str, timeout_sec: float = 30.0) -> dict:
+        """
+        Poll an order until it leaves the open state
+
+        Args:
+            order_id: Order to poll
+            timeout_sec: How long to wait before giving up
+
+        Returns:
+            The order in its final observed state
+        """
+        deadline = time.time() + timeout_sec
+        while True:
+            order = self.order(order_id)
+            if order["status"] not in (
+                "new",
+                "accepted",
+                "pending_new",
+                "partially_filled",
+            ):
+                return order
+            if time.time() >= deadline:
+                return order
+            time.sleep(0.5)
 
     def submit_order(self, symbol: str, quantity: float, side: str) -> dict:
         return self._call(

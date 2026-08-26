@@ -9,7 +9,12 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from open_fin_gym.pipeline.config import Scope
-from open_fin_gym.pipeline.db.tables import CURATED_TASK_TYPES, Chunk, Paper, PaperStatus
+from open_fin_gym.pipeline.db.tables import (
+    CURATED_TASK_TYPES,
+    Chunk,
+    Paper,
+    PaperStatus,
+)
 from open_fin_gym.pipeline.db.utils import set_paper_status
 from open_fin_gym.pipeline.steps.judge.utils import filter_chunks
 from open_fin_gym.pipeline.steps.task_export.utils import slugify
@@ -108,10 +113,14 @@ class TaskRouter:
             descriptor: Parsed descriptor
             config: LLM-chosen field values
         """
-        task_dir = self.export_path / slugify(f"{descriptor['task_id']} {paper.paper_id}")
+        task_dir = self.export_path / slugify(
+            f"{descriptor['task_id']} {paper.paper_id}"
+        )
         if task_dir.exists():
             shutil.rmtree(task_dir)
-        shutil.copytree(bundle_path, task_dir, ignore=shutil.ignore_patterns("descriptor.toml"))
+        shutil.copytree(
+            bundle_path, task_dir, ignore=shutil.ignore_patterns("descriptor.toml")
+        )
 
         episode = {**descriptor["defaults"], **config.model_dump(exclude={"reasoning"})}
         with open(task_dir / "environment" / "episode.json", "w") as f:
