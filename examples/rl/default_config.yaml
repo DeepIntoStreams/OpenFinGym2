@@ -1,0 +1,137 @@
+data:
+  train_data: ./tasks/train/
+  val_data: ./tasks/test/
+trainer:
+  policy:
+    model:
+      path: Qwen/Qwen3-8B
+    optimizer_config:
+      lr: 1.0e-6
+  fully_async:
+    enabled: true
+    max_staleness_steps: 4
+    num_parallel_generation_workers: 32
+    clear_kv_cache_on_weight_sync: false
+  algorithm:
+    policy_loss_type: rollout_is
+    advantage_estimator: grpo
+    loss_reduction: token_mean
+    grpo_norm_by_std: false
+    use_kl_loss: false
+    max_seq_len: 32768
+    off_policy_correction:
+      sequence_mask_metric: geometric
+      geo_mask_high: 1.01
+      geo_mask_low: 0.99
+  strategy: fsdp
+  placement:
+    colocate_all: false
+    policy_num_nodes: 1
+    ref_num_nodes: 1
+    policy_num_gpus_per_node: 4
+    ref_num_gpus_per_node: 4
+  epochs: 3
+  eval_batch_size: 128
+  eval_before_train: false
+  eval_interval: 100
+  update_epochs_per_batch: 1
+  train_batch_size: 16
+  policy_mini_batch_size: 16
+  micro_forward_batch_size_per_gpu: 1
+  micro_train_batch_size_per_gpu: 1
+  ckpt_interval: 5
+  max_ckpts_to_keep: 5
+  hf_save_interval: 5
+  logger: console  # wandb
+generator:
+  inference_engine:
+    served_model_name: Qwen3-8B
+    num_engines: 2
+    tensor_parallel_size: 2
+    engine_init_kwargs:
+      # "$(dirname "$0")/../../../skyrl/train/utils/templates/qwen3_acc_thinking.jinja2"
+      chat_template: qwen3_acc_thinking.jinja2
+      max_model_len: 32768
+      enable_log_requests: false
+    gpu_memory_utilization: 0.9
+    backend: vllm
+    run_engines_locally: true
+    weight_sync_backend: nccl
+    enforce_eager: false
+  step_wise_trajectories: true
+  merge_stepwise_output: true
+  n_samples_per_prompt: 8
+  eval_n_samples_per_prompt: 2
+  apply_overlong_filtering: true
+  batched: false
+  rate_limit:
+    enabled: true
+    trajectories_per_second: 5
+    max_concurrency: 128
+harbor_trial_config:
+  # Trial timeout multiplier (applied to default timeouts)
+  timeout_multiplier: 1.0
+  # Agent configuration
+  # See: harbor.models.trial.config.AgentConfig
+  agent:
+    # Agent name. Options: terminus-2, terminus-1, terminus, oracle, claude-code,
+    # aider, swe-agent, openhands, etc.
+    name: terminus-2
+    # The time given a single Trial to run. If fails, the Trial raises an AgentTimeoutError.
+    override_timeout_sec: 1200
+    # Agent-specific settings passed to the agent constructor
+    kwargs:
+      # Maximum number of agent episodes/iterations
+      max_turns: 32
+      # Suppress Harbor override warnings for max_turns
+      suppress_max_turns_warning: true
+      # Whether to enable context summarization when approaching token limits
+      enable_summarize: false
+      # Collect per-turn rollout details (required for step-wise training)
+      collect_rollout_details: true
+      # The only sampling param that directly gets passed to Terminus
+      temperature: 1.0
+      # Model info for token budgeting
+      # NOTE: max_input_tokens should match generator.inference_engine.engine_init_kwargs.max_model_len
+      model_info:
+        max_input_tokens: 32768
+        max_output_tokens: 32768
+        # Set costs to 0 for local training
+        input_cost_per_token: 0.0
+        output_cost_per_token: 0.0
+      # Additional kwargs passed through to LiteLLM's acompletion() call.
+      # These are forwarded via Terminus2 -> LiteLLM -> litellm.acompletion(**kwargs).
+      # Any parameter that litellm.acompletion() accepts can be set here, including:
+      #   - timeout: LLM request timeout in seconds (default: litellm's 600s)
+      #   - max_retries: Number of retries at the OpenAI SDK level (default: 2)
+      #   - top_p, top_k, frequency_penalty, presence_penalty, etc.
+      llm_kwargs:
+        # LLM request timeout in seconds. Higher values prevent premature retries.
+        timeout: 900
+        # Set to 0 to disable OpenAI SDK retries from LiteLLM.
+        max_retries: 0
+        # Sampling params that directly get passed to LiteLLM's acompletion() call.
+        top_p: 1.0
+        top_k: -1
+        min_p: 0.0
+  # Environment configuration
+  # See: harbor.models.trial.config.EnvironmentConfig
+  environment:
+    # Environment type. Options: daytona, docker, e2b, modal, runloop, gke
+    type: docker
+    # Resource overrides (optional)
+    override_cpus: 1
+    override_memory_mb: 1024
+    override_storage_mb: 1024
+    suppress_override_warnings: true
+    # Environment-specific settings
+    # kwargs:
+      # sandbox_timeout_secs: 1800 # Modal-specific. Timeout of the sandbox after which it is automatically stopped.
+      # auto_stop_interval_mins: 30 # Daytona-specific. Minutes of inactivity before the sandbox is automatically stopped.
+  # Verifier configuration
+  # See: harbor.models.trial.config.VerifierConfig
+  verifier:
+    # Set to true to skip verification (useful for debugging)
+    disable: false
+    # Override the verifier timeout (seconds)
+    # override_timeout_sec: 300

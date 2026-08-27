@@ -30,6 +30,17 @@ dependencies = [
     "taskipy>=1.14.1",
 ]
 
+[project.optional-dependencies]
+training = [
+    "jaxtyping>=0.3.11",
+    "loguru>=0.7.3",
+    "pybase64>=1.5.0",
+    "ray>=2.58.0",
+    "skyrl",
+    "skyrl-gym>=0.4.0",
+    "torchdata>=0.11.0",
+]
+
 [build-system]
 requires = ["uv_build>=0.8.14,<0.9.0"]
 build-backend = "uv_build"
@@ -52,3 +63,6 @@ mlflow = "mlflow server --host 127.0.0.1 --port 8080 --backend-store-uri sqlite:
 
 [tool.pytest.ini_options]
 python_classes = ["PytestCollect*"]
+
+[tool.uv.sources]
+skyrl = { git = "ssh://git@github.com/NovaSky-AI/SkyRL" }
