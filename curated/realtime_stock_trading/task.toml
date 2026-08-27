@@ -1,5 +1,8 @@
 schema_version = "1.4"
 
+# Collected from the broker sidecar so the trial keeps the traded ledger
+artifacts = [{ source = "/ledger/episode.jsonl", service = "broker" }]
+
 [task]
 name = "openfingym/realtime_stock_trading"
 version = "1.0.0"
@@ -30,5 +33,3 @@ memory_mb = 2048
 [environment.env]
 ALPACA_API_KEY_ID = "${ALPACA_API_KEY_ID}"
 ALPACA_API_SECRET_KEY = "${ALPACA_API_SECRET_KEY}"
-
-artifacts = [{ source = "/ledger/episode.jsonl", service = "broker" }]
