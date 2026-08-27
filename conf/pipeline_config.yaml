@@ -6,6 +6,7 @@ defaults:
   - retrieval: default_retrieval
   - judge: default_judge
   - task_extractor: default_task_extractor
+  - task_critic: default_task_critic
   - task_router: default_task_router
   - task_generator: default_task_generator
   - task_exporter: default_task_exporter
