@@ -136,9 +136,7 @@ class MarketDataBuffer:
             max_workers=max(2, len(self._symbols)),
             thread_name_prefix="mdb-backfill",
         ) as pool:
-            futures = [
-                pool.submit(_fetch_one, sym) for sym in self._symbols
-            ]
+            futures = [pool.submit(_fetch_one, sym) for sym in self._symbols]
             for future in futures:
                 symbol, bars, err = future.result()
                 if err is not None:
@@ -289,7 +287,10 @@ class MarketDataBuffer:
         Falls back gracefully if the provider does not support
         WebSocket (returns without doing anything).
         """
-        if not hasattr(self._provider, "supports_websocket") or not self._provider.supports_websocket():
+        if (
+            not hasattr(self._provider, "supports_websocket")
+            or not self._provider.supports_websocket()
+        ):
             logger.info(
                 "Provider %s does not support WebSocket; buffer will use REST only.",
                 self._provider.name,
@@ -304,9 +305,8 @@ class MarketDataBuffer:
             # coroutine. Bind symbol/interval at def time, not call time.
             def _make_bars_factory(sym: str, interval: str) -> Any:
                 async def _factory() -> None:
-                    await self._provider.subscribe_bars(
-                        sym, interval, self._on_bar
-                    )
+                    await self._provider.subscribe_bars(sym, interval, self._on_bar)
+
                 return _factory
 
             tasks.append(
@@ -316,11 +316,13 @@ class MarketDataBuffer:
                 )
             )
             if hasattr(self._provider, "subscribe_order_book"):
+
                 def _make_ob_factory(sym: str) -> Any:
                     async def _factory() -> None:
                         await self._provider.subscribe_order_book(
                             sym, self._on_order_book
                         )
+
                     return _factory
 
                 tasks.append(
@@ -336,7 +338,10 @@ class MarketDataBuffer:
 
         Returns the thread (or ``None`` if the provider lacks WebSocket).
         """
-        if not hasattr(self._provider, "supports_websocket") or not self._provider.supports_websocket():
+        if (
+            not hasattr(self._provider, "supports_websocket")
+            or not self._provider.supports_websocket()
+        ):
             return None
 
         def _run() -> None:
@@ -458,5 +463,7 @@ class MarketDataBuffer:
             try:
                 return self._provider.get_order_book(symbol)
             except Exception:
-                logger.debug("REST order-book fetch failed for %s", symbol, exc_info=True)
+                logger.debug(
+                    "REST order-book fetch failed for %s", symbol, exc_info=True
+                )
         return None

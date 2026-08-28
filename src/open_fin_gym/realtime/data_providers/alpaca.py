@@ -43,16 +43,14 @@ import asyncio
 import json as _json
 import logging
 import os
-import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any, Callable
 
 import requests
 
 from open_fin_gym.realtime.data_providers.base import (
-    DataProvider,
     MarketSnapshot,
     OrderBookSnapshot,
     interval_to_seconds,
@@ -74,11 +72,27 @@ logger = logging.getLogger(__name__)
 # below — they're a no-op on the validated symbols and tier, but if
 # an auction-print / halt-print condition does appear, the cross-check
 # fallback below will surface a divergence and we can refine.
-_DEFAULT_NON_LAST_SALE_CODES: frozenset[str] = frozenset({
-    "I",  # Intermarket Sweep Order — empirically validated
-    # Defensive (not seen in 1-hour validation; cross-check would catch):
-    "O", "M", "B", "L", "X", "P", "T", "U", "Z", "9", "V", "4", "5", "6", "7",
-})
+_DEFAULT_NON_LAST_SALE_CODES: frozenset[str] = frozenset(
+    {
+        "I",  # Intermarket Sweep Order — empirically validated
+        # Defensive (not seen in 1-hour validation; cross-check would catch):
+        "O",
+        "M",
+        "B",
+        "L",
+        "X",
+        "P",
+        "T",
+        "U",
+        "Z",
+        "9",
+        "V",
+        "4",
+        "5",
+        "6",
+        "7",
+    }
+)
 
 
 class _AlpacaTradesBarBuilder:
@@ -194,9 +208,7 @@ class _AlpacaTradesBarBuilder:
             return
         snap = MarketSnapshot(
             symbol=self._symbol,
-            timestamp=datetime.fromtimestamp(
-                self._bar_open_ms / 1000, tz=timezone.utc
-            ),
+            timestamp=datetime.fromtimestamp(self._bar_open_ms / 1000, tz=timezone.utc),
             price=self._c,
             open=self._o,
             high=self._h,
@@ -232,8 +244,11 @@ class _AlpacaTradesBarBuilder:
             return
         closed_open_ms = self._bar_open_ms
         closed_snapshot = {
-            "o": self._o, "h": self._h, "l": self._l,
-            "c": self._c, "v": self._v,
+            "o": self._o,
+            "h": self._h,
+            "l": self._l,
+            "c": self._c,
+            "v": self._v,
             "ohlc_trade_count": self._ohlc_trade_count,
         }
         self._emit_current()
@@ -343,18 +358,22 @@ class _AlpacaTradesBarBuilder:
         )
         now = datetime.now(timezone.utc)
         logger.warning(
-            "alpaca trade-stream silence detected sym=%s — REST backfill "
-            "from %s to %s",
-            self._symbol, start.isoformat(), now.isoformat(),
+            "alpaca trade-stream silence detected sym=%s — REST backfill from %s to %s",
+            self._symbol,
+            start.isoformat(),
+            now.isoformat(),
         )
         try:
             trades = self._rest.get_trades(
-                self._symbol, start=start, end=now,
+                self._symbol,
+                start=start,
+                end=now,
             )
         except Exception:
             logger.warning(
                 "alpaca silence-backfill REST call failed sym=%s",
-                self._symbol, exc_info=True,
+                self._symbol,
+                exc_info=True,
             )
             return
         applied = 0
@@ -378,14 +397,17 @@ class _AlpacaTradesBarBuilder:
             applied += 1
         logger.info(
             "alpaca silence-backfill applied sym=%s trades=%d",
-            self._symbol, applied,
+            self._symbol,
+            applied,
         )
         self._emit_current()
 
     # --- cross-check ---------------------------------------------------
 
     def _cross_check(
-        self, closed_open_ms: int, local: dict[str, float],
+        self,
+        closed_open_ms: int,
+        local: dict[str, float],
     ) -> None:
         """Compare just-closed local bar to Alpaca REST ``/bars`` and
         replace if divergent.
@@ -407,19 +429,22 @@ class _AlpacaTradesBarBuilder:
         """
         try:
             time.sleep(self.CROSS_CHECK_DELAY_S)
-            start = datetime.fromtimestamp(
-                closed_open_ms / 1000, tz=timezone.utc
-            )
+            start = datetime.fromtimestamp(closed_open_ms / 1000, tz=timezone.utc)
             end = datetime.fromtimestamp(
                 (closed_open_ms + self._interval_ms) / 1000, tz=timezone.utc
             )
             rest_bars = self._rest.get_bars(
-                self._symbol, self._interval_label(), start, end,
+                self._symbol,
+                self._interval_label(),
+                start,
+                end,
             )
         except Exception:
             logger.debug(
                 "alpaca cross-check REST failed sym=%s bar=%d",
-                self._symbol, closed_open_ms, exc_info=True,
+                self._symbol,
+                closed_open_ms,
+                exc_info=True,
             )
             return
         # Find the bar whose timestamp matches.
@@ -447,15 +472,16 @@ class _AlpacaTradesBarBuilder:
         logger.warning(
             "alpaca cross-check divergence sym=%s bar_open_ms=%d "
             "local=%s rest=%s — replacing local with REST canonical",
-            self._symbol, closed_open_ms, local, rest,
+            self._symbol,
+            closed_open_ms,
+            local,
+            rest,
         )
         # Replace by re-firing callback with REST's snapshot. The
         # buffer dedups by timestamp, so this overwrites in place.
         snap = MarketSnapshot(
             symbol=self._symbol,
-            timestamp=datetime.fromtimestamp(
-                closed_open_ms / 1000, tz=timezone.utc
-            ),
+            timestamp=datetime.fromtimestamp(closed_open_ms / 1000, tz=timezone.utc),
             price=rest["c"],
             open=rest["o"],
             high=rest["h"],
@@ -468,7 +494,8 @@ class _AlpacaTradesBarBuilder:
         except Exception:
             logger.warning(
                 "alpaca cross-check replacement callback raised sym=%s",
-                self._symbol, exc_info=True,
+                self._symbol,
+                exc_info=True,
             )
 
     def _interval_label(self) -> str:
@@ -528,7 +555,10 @@ class AlpacaProvider:
         self._api_secret = os.environ.get(api_secret_env, "")
         if self._api_key:
             self._session.headers.update(
-                {"APCA-API-KEY-ID": self._api_key, "APCA-API-SECRET-KEY": self._api_secret}
+                {
+                    "APCA-API-KEY-ID": self._api_key,
+                    "APCA-API-SECRET-KEY": self._api_secret,
+                }
             )
         else:
             logger.warning(
@@ -596,9 +626,7 @@ class AlpacaProvider:
         # keeps `recent_bars[-1]` coherent and stops microsecond-precision
         # wall-clock injections from accumulating as separate volume=None
         # entries. `feed=iex` matches `get_bars` for free-tier consistency.
-        data = self._get(
-            f"/v2/stocks/{symbol}/bars/latest", {"feed": "iex"}
-        )
+        data = self._get(f"/v2/stocks/{symbol}/bars/latest", {"feed": "iex"})
         bar = data.get("bar")
         if not bar:
             raise ValueError(f"No latest bar returned for {symbol}")
@@ -618,9 +646,7 @@ class AlpacaProvider:
     ) -> MarketSnapshot:
         bars = self.get_bars(symbol, interval, at, at)
         if not bars:
-            raise ValueError(
-                f"No {interval} bar data for {symbol} at {at.isoformat()}"
-            )
+            raise ValueError(f"No {interval} bar data for {symbol} at {at.isoformat()}")
         return bars[0]
 
     def get_bars(
@@ -783,16 +809,24 @@ class AlpacaProvider:
         )
         try:
             async with websockets.connect(self._WS_URL) as ws:
-                await ws.send(_json.dumps({
-                    "action": "auth",
-                    "key": self._api_key,
-                    "secret": self._api_secret,
-                }))
+                await ws.send(
+                    _json.dumps(
+                        {
+                            "action": "auth",
+                            "key": self._api_key,
+                            "secret": self._api_secret,
+                        }
+                    )
+                )
                 await ws.recv()  # auth ack
-                await ws.send(_json.dumps({
-                    "action": "subscribe",
-                    "trades": [symbol],
-                }))
+                await ws.send(
+                    _json.dumps(
+                        {
+                            "action": "subscribe",
+                            "trades": [symbol],
+                        }
+                    )
+                )
                 await ws.recv()  # subscription ack
 
                 # Watchdog loop: poll for messages with a timeout
@@ -801,9 +835,7 @@ class AlpacaProvider:
                 watchdog_s = _AlpacaTradesBarBuilder.WATCHDOG_TIMEOUT_S
                 while True:
                     try:
-                        raw = await asyncio.wait_for(
-                            ws.recv(), timeout=watchdog_s
-                        )
+                        raw = await asyncio.wait_for(ws.recv(), timeout=watchdog_s)
                     except asyncio.TimeoutError:
                         builder.backfill_silence_gap()
                         continue
@@ -820,7 +852,8 @@ class AlpacaProvider:
                         except Exception:
                             logger.warning(
                                 "alpaca trade processing error sym=%s",
-                                symbol, exc_info=True,
+                                symbol,
+                                exc_info=True,
                             )
         finally:
             builder.close()
@@ -834,7 +867,9 @@ class AlpacaProvider:
         import websockets  # optional dependency
 
         async with websockets.connect(self._WS_URL) as ws:
-            auth_msg = _json.dumps({"action": "auth", "key": self._api_key, "secret": self._api_secret})
+            auth_msg = _json.dumps(
+                {"action": "auth", "key": self._api_key, "secret": self._api_secret}
+            )
             await ws.send(auth_msg)
             await ws.recv()
 

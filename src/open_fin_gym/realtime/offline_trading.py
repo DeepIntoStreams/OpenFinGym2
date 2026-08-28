@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 import pandas as pd
 
+from open_fin_gym.realtime.config import TradingConfig
 from open_fin_gym.realtime.contracts import TaskMetadata, TradingTask
 from open_fin_gym.realtime.data_providers.base import MarketSnapshot
 from open_fin_gym.realtime.execution import OrderType
@@ -30,7 +31,6 @@ from open_fin_gym.realtime.tasks.base_realtime_task import (
     _resolve_context_resolutions,
     _validate_target_symbols,
 )
-from open_fin_gym.realtime.config import TradingConfig
 
 # datasets/ root, resolved relative to this file:
 # benchmark/ -> openfinai_pipeline/ -> src/ -> <repo root>.
@@ -115,12 +115,12 @@ class _OfflineTradingTask(TradingTask):
     """
 
     # ── Subclass seams ──────────────────────────────────────────────
-    _CACHE_SUBDIR: str = ""            # datasets/ subdir for the CSV cache
+    _CACHE_SUBDIR: str = ""  # datasets/ subdir for the CSV cache
     _DEFAULT_SYMBOLS: tuple[str, ...] = ()
-    _SOURCE_LABEL: str = ""            # "Binance" / "Alpaca"
-    _ASSET_TAG: str = ""               # "crypto" / "stock"
-    _TASK_ID_PREFIX: str = ""          # "offline_crypto_trading" / ...
-    _TITLE: str = ""                   # "Offline Crypto Trading" / ...
+    _SOURCE_LABEL: str = ""  # "Binance" / "Alpaca"
+    _ASSET_TAG: str = ""  # "crypto" / "stock"
+    _TASK_ID_PREFIX: str = ""  # "offline_crypto_trading" / ...
+    _TITLE: str = ""  # "Offline Crypto Trading" / ...
     _VERSION: str = "1.0.0"
 
     def _make_default_provider(self) -> Any:
@@ -291,8 +291,7 @@ class _OfflineTradingTask(TradingTask):
                     "recent_bars, order_book(None for historical replay)}]"
                 ),
                 "portfolio": (
-                    "dict[cash, reserved_cash, positions, pnl, value, "
-                    "pending_orders]"
+                    "dict[cash, reserved_cash, positions, pnl, value, pending_orders]"
                 ),
             },
             "symbols": list(self._symbols),
@@ -393,9 +392,7 @@ class _OfflineTradingTask(TradingTask):
                 "order_book": None,
             }
             if self._extra_resolutions:
-                entry["recent_bars_by_interval"] = self._slice_all_resolutions(
-                    sym, idx
-                )
+                entry["recent_bars_by_interval"] = self._slice_all_resolutions(sym, idx)
             sym_obs[sym] = entry
         return sym_obs
 

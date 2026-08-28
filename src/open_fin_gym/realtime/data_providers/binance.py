@@ -35,7 +35,6 @@ from typing import Any, Callable
 import requests
 
 from open_fin_gym.realtime.data_providers.base import (
-    DataProvider,
     MarketSnapshot,
     OrderBookSnapshot,
     interval_to_seconds,
@@ -165,7 +164,9 @@ class _AggTradeBarBuilder:
             if a < self._last_a:
                 logger.debug(
                     "aggTrade out-of-order a=%d < last_a=%d (ignored) sym=%s",
-                    a, self._last_a, self._symbol,
+                    a,
+                    self._last_a,
+                    self._symbol,
                 )
                 return
             if a > self._last_a + 1:
@@ -184,9 +185,11 @@ class _AggTradeBarBuilder:
         in-progress bar until the next live aggTrade lands; not fatal.
         """
         logger.warning(
-            "aggTrade gap detected sym=%s from_id=%d to_id=%d size=%d — "
-            "REST backfill",
-            self._symbol, from_id, to_id, to_id - from_id + 1,
+            "aggTrade gap detected sym=%s from_id=%d to_id=%d size=%d — REST backfill",
+            self._symbol,
+            from_id,
+            to_id,
+            to_id - from_id + 1,
         )
         cursor = from_id
         applied = 0
@@ -198,13 +201,16 @@ class _AggTradeBarBuilder:
             except Exception:
                 logger.warning(
                     "aggTrade backfill REST call failed sym=%s cursor=%d",
-                    self._symbol, cursor, exc_info=True,
+                    self._symbol,
+                    cursor,
+                    exc_info=True,
                 )
                 break
             if not batch:
                 logger.warning(
                     "aggTrade backfill returned empty batch sym=%s cursor=%d",
-                    self._symbol, cursor,
+                    self._symbol,
+                    cursor,
                 )
                 break
             stop = False
@@ -226,7 +232,9 @@ class _AggTradeBarBuilder:
                 break
         logger.info(
             "aggTrade gap bridged sym=%s applied=%d/%d",
-            self._symbol, applied, to_id - from_id + 1,
+            self._symbol,
+            applied,
+            to_id - from_id + 1,
         )
         # Surface the post-backfill state once.
         self._emit_current()
@@ -531,7 +539,8 @@ class BinanceProvider:
                     builder.on_aggtrade(msg)
                 except Exception:
                     logger.warning(
-                        "aggTrade processing error symbol=%s", symbol,
+                        "aggTrade processing error symbol=%s",
+                        symbol,
                         exc_info=True,
                     )
 

@@ -58,7 +58,9 @@ def create_executor(
                 f"alpaca_paper execution mode requires the alpaca provider, "
                 f"got {provider_name!r}"
             )
-        from open_fin_gym.realtime.execution.alpaca_paper import AlpacaPaperExecutor
+        from open_fin_gym.realtime.execution.alpaca_paper import (
+            AlpacaPaperExecutor,
+        )
 
         return AlpacaPaperExecutor(flatten_on_start=config.flatten_on_start)
     return SimulatedExecutor(config, initial_capital=initial_capital)

@@ -75,9 +75,7 @@ class PredictionLedger:
         # is still safe: the verifier serialises writes under
         # ``state.score_lock``, and the synchronous CLI uses a single
         # thread anyway.
-        self._conn = sqlite3.connect(
-            str(self._db_path), check_same_thread=False
-        )
+        self._conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(_SCHEMA)
         self._migrate_columns()

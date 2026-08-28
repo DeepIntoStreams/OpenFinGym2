@@ -55,7 +55,9 @@ def _resolve_task_data_dir(task_obj: "BaseTask") -> Path:
     """
     import sys
 
-    cfg_dir = task_obj.config.get("data_dir") if isinstance(task_obj.config, dict) else None
+    cfg_dir = (
+        task_obj.config.get("data_dir") if isinstance(task_obj.config, dict) else None
+    )
     if cfg_dir:
         candidate = Path(cfg_dir).resolve()
         if candidate.is_dir():
@@ -369,7 +371,9 @@ class ForecastingTask(BaseTask):
         is always ``0.0`` -- evaluation is inherently batch/deferred.
         """
         if self._done:
-            raise RuntimeError("step() called on a finished episode. Call reset() first.")
+            raise RuntimeError(
+                "step() called on a finished episode. Call reset() first."
+            )
         self._predictions.append(action)
         self._current_idx += 1
         total = self._get_num_samples()
@@ -569,7 +573,9 @@ class GenerativeTask(BaseTask):
             )
 
         if self._evaluator is not None:
-            extra_ctx = self.prepare_eval_context(generated_samples, reference_data) or {}
+            extra_ctx = (
+                self.prepare_eval_context(generated_samples, reference_data) or {}
+            )
             merged = {**extra_ctx, **kwargs}  # explicit kwargs win on collision
             return self._evaluator.score(generated_samples, reference_data, **merged)
         return self._default_score(generated_samples, reference_data)
@@ -598,7 +604,9 @@ class GenerativeTask(BaseTask):
             payload = agent_actions
         return self.generate_and_evaluate(payload, **kwargs)
 
-    def _default_score(self, generated_samples: Any, reference_data: Any) -> Dict[str, float]:
+    def _default_score(
+        self, generated_samples: Any, reference_data: Any
+    ) -> Dict[str, float]:
         if generated_samples is None or reference_data is None:
             return {"reward": 0.0}
         try:
@@ -671,7 +679,9 @@ class TradingAction:
             action=d["action"],
             symbol=d["symbol"],
             quantity=float(d.get("quantity", 0.0)),
-            metadata={k: v for k, v in d.items() if k not in ("action", "symbol", "quantity")},
+            metadata={
+                k: v for k, v in d.items() if k not in ("action", "symbol", "quantity")
+            },
         )
 
 
@@ -1043,8 +1053,7 @@ class TradingTask(BaseTask):
             value = None
         else:
             value = float(cash) + sum(
-                float(qty) * prices.get(sym, 0.0)
-                for sym, qty in positions.items()
+                float(qty) * prices.get(sym, 0.0) for sym, qty in positions.items()
             )
         return {
             "step": self._step_count,
@@ -1106,7 +1115,9 @@ class TradingTask(BaseTask):
 
     def step(self, action: Any) -> tuple[Any, float, bool, Dict[str, Any]]:
         if self._done:
-            raise RuntimeError("step() called on a finished episode. Call reset() first.")
+            raise RuntimeError(
+                "step() called on a finished episode. Call reset() first."
+            )
         self._on_step_start()
         reward, info = self._execute_trade(action)
         info = dict(info)  # copy to avoid mutating caller-supplied dicts
@@ -1152,9 +1163,7 @@ class TradingTask(BaseTask):
             executor = getattr(self, "_executor", None)
             if executor is not None:
                 prices = (
-                    self._current_prices()
-                    if hasattr(self, "_current_prices")
-                    else {}
+                    self._current_prices() if hasattr(self, "_current_prices") else {}
                 )
                 extra_expired = executor.expire_all(prices, step=self._step_count)
                 if extra_expired:
@@ -1225,9 +1234,7 @@ class TradingTask(BaseTask):
         filtered: List[Dict[str, Any]] = []
         for entry in history:
             per_sym = entry.get("per_symbol_rewards") or {}
-            tgt_reward = float(
-                sum(v for s, v in per_sym.items() if s in target_set)
-            )
+            tgt_reward = float(sum(v for s, v in per_sym.items() if s in target_set))
             filtered.append({**entry, "reward": tgt_reward})
         return _compute_trading_metrics_from_history(
             filtered,

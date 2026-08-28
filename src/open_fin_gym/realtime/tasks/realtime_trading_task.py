@@ -35,18 +35,8 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from open_fin_gym.realtime.rewards import (
-    MaxDrawdown,
-    PnL,
-    SharpeRatio,
-    TradingReward,
-    WinRate,
-)
-from open_fin_gym.realtime.contracts import (
-    TaskMetadata,
-    TradingTask,
-)
 from open_fin_gym.realtime.config import TradingConfig
+from open_fin_gym.realtime.contracts import TaskMetadata, TradingTask
 from open_fin_gym.realtime.data_providers.base import (
     DataProvider,
     downsample_bars,
@@ -57,6 +47,13 @@ from open_fin_gym.realtime.execution import (
     create_executor,
 )
 from open_fin_gym.realtime.market_data_buffer import MarketDataBuffer
+from open_fin_gym.realtime.rewards import (
+    MaxDrawdown,
+    PnL,
+    SharpeRatio,
+    TradingReward,
+    WinRate,
+)
 from open_fin_gym.realtime.tasks.base_realtime_task import (
     _resolve_context_resolutions,
     _validate_target_symbols,
@@ -157,9 +154,7 @@ class RealtimeTradingTask(TradingTask):
         self._extra_resolutions: tuple[tuple[str, int], ...] = extras
         # Trades outside target_symbols are allowed (agent may hedge on
         # context-only symbols) but excluded from reward-bank metrics.
-        self._target_symbols = _validate_target_symbols(
-            target_symbols, self._symbols
-        )
+        self._target_symbols = _validate_target_symbols(target_symbols, self._symbols)
 
         # Auto-scale buffer_size up if it can't span the sidecars'
         # lookback — silent truncation would corrupt downsampling.
@@ -346,9 +341,7 @@ class RealtimeTradingTask(TradingTask):
                 # primary buffer's _lookback_bars history, so they stay
                 # in sync with every WS update — no extra fetch.
                 by_interval: dict[str, list[Any]] = {self._interval: recent}
-                full_history = self._buffer.get_recent_bars(
-                    symbol, self._lookback_bars
-                )
+                full_history = self._buffer.get_recent_bars(symbol, self._lookback_bars)
                 for ex_interval, ex_bars in self._extra_resolutions:
                     by_interval[ex_interval] = downsample_bars(
                         full_history, ex_interval, ex_bars
@@ -422,20 +415,24 @@ class RealtimeTradingTask(TradingTask):
         has_ob_api = getattr(self._provider, "get_order_book", None) is not None
         for sym in self._symbols:
             if self._buffer.price_staleness_ms(sym) >= self.PRICE_STALENESS_TTL_MS:
-                futures.append((
-                    sym, "price",
-                    self._fetch_pool.submit(
-                        self._provider.get_current_price, sym
-                    ),
-                ))
+                futures.append(
+                    (
+                        sym,
+                        "price",
+                        self._fetch_pool.submit(self._provider.get_current_price, sym),
+                    )
+                )
             if (
                 has_ob_api
                 and self._buffer.ob_staleness_ms(sym) >= self.OB_STALENESS_TTL_MS
             ):
-                futures.append((
-                    sym, "ob",
-                    self._fetch_pool.submit(self._provider.get_order_book, sym),
-                ))
+                futures.append(
+                    (
+                        sym,
+                        "ob",
+                        self._fetch_pool.submit(self._provider.get_order_book, sym),
+                    )
+                )
         if not futures:
             return  # happy path: WS-fed buffer is fresh for every symbol
         for sym, kind, future in futures:
@@ -454,16 +451,10 @@ class RealtimeTradingTask(TradingTask):
                 # "always-REST" sentinel) consistently applies the
                 # REST result even when the staleness delta is below
                 # the timer's resolution floor.
-                if (
-                    self._buffer.price_staleness_ms(sym)
-                    >= self.PRICE_STALENESS_TTL_MS
-                ):
+                if self._buffer.price_staleness_ms(sym) >= self.PRICE_STALENESS_TTL_MS:
                     self._buffer.insert_bar(sym, result)
             else:  # "ob"
-                if (
-                    self._buffer.ob_staleness_ms(sym)
-                    >= self.OB_STALENESS_TTL_MS
-                ):
+                if self._buffer.ob_staleness_ms(sym) >= self.OB_STALENESS_TTL_MS:
                     self._buffer._on_order_book(result)
 
     def close(self) -> None:

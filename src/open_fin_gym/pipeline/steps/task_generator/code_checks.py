@@ -3,11 +3,12 @@ from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-import docker
 from docker.errors import BuildError
 from jinja2 import Template
 from pylint.lint import Run
 from pylint.reporters.json_reporter import JSON2Reporter
+
+import docker
 
 
 def run_pylint(script_path: Path) -> tuple[bool, str]:

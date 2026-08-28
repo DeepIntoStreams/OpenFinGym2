@@ -139,13 +139,10 @@ def _resolve_context_resolutions(
         interval = entry.get("interval")
         bars = entry.get("bars")
         if not isinstance(interval, str) or not interval:
-            raise ValueError(
-                f"context_resolutions[{i}] missing string 'interval'"
-            )
+            raise ValueError(f"context_resolutions[{i}] missing string 'interval'")
         if not isinstance(bars, int) or bars <= 0:
             raise ValueError(
-                f"context_resolutions[{i}].bars must be a positive int; "
-                f"got {bars!r}"
+                f"context_resolutions[{i}].bars must be a positive int; got {bars!r}"
             )
         if interval in seen:
             raise ValueError(
@@ -166,8 +163,7 @@ def _resolve_context_resolutions(
     else:
         if not isinstance(data_resolution, str) or not data_resolution:
             raise ValueError(
-                f"data_resolution must be a non-empty string; got "
-                f"{data_resolution!r}"
+                f"data_resolution must be a non-empty string; got {data_resolution!r}"
             )
         match = next(
             ((iv, bb) for iv, bb in parsed if iv == data_resolution),
@@ -181,9 +177,7 @@ def _resolve_context_resolutions(
             )
         data_resolution_interval, data_resolution_bars = match
 
-    extras = tuple(
-        (iv, bb) for iv, bb in parsed if iv != data_resolution_interval
-    )
+    extras = tuple((iv, bb) for iv, bb in parsed if iv != data_resolution_interval)
 
     # Sidecars are downsampled from the primary buffer, so data_resolution
     # must be the finest interval. Compare in seconds (parse_interval
@@ -287,9 +281,7 @@ class RealtimeForecastingTask(ForecastingTask):
             raise ValueError("symbols must be non-empty")
         self._horizon_bars = int(horizon_bars)
         if self._horizon_bars < 1:
-            raise ValueError(
-                f"horizon_bars must be >= 1; got {self._horizon_bars!r}"
-            )
+            raise ValueError(f"horizon_bars must be >= 1; got {self._horizon_bars!r}")
         if headline_metric not in _VALID_REALTIME_HEADLINE:
             raise ValueError(
                 f"headline_metric={headline_metric!r} is not in the "
@@ -319,9 +311,7 @@ class RealtimeForecastingTask(ForecastingTask):
         )
         # target_symbols defaults to all inputs; validated as a non-
         # empty subset so a typo can't silently disable scoring.
-        self._target_symbols = _validate_target_symbols(
-            target_symbols, self._symbols
-        )
+        self._target_symbols = _validate_target_symbols(target_symbols, self._symbols)
         self._session_id: str = ""
         # Shadows ForecastingTask._predictions (raw actions) with rich
         # ledger records carrying entry_price / resolve_at / ledger_id.
@@ -335,7 +325,7 @@ class RealtimeForecastingTask(ForecastingTask):
         return TaskMetadata(
             task_id=f"realtime_forecasting_{sym_label}_{self._horizon_minutes}m",
             title=f"Realtime Forecasting ({', '.join(self._symbols)}, "
-                  f"{self._horizon_minutes}m horizon)",
+            f"{self._horizon_minutes}m horizon)",
             description=(
                 f"Predict price direction for {self._symbols} over a "
                 f"{self._horizon_minutes}-minute horizon using real-time market data."
@@ -467,10 +457,15 @@ class RealtimeForecastingTask(ForecastingTask):
                 self._symbols,
             )
             self._step_count += 1
-            return self._build_observation(), 0.0, False, {
-                "dropped_off_target": True,
-                "symbol": symbol,
-            }
+            return (
+                self._build_observation(),
+                0.0,
+                False,
+                {
+                    "dropped_off_target": True,
+                    "symbol": symbol,
+                },
+            )
         snapshot = self._provider.get_current_price(symbol)
         now = datetime.now(timezone.utc)
 
@@ -482,9 +477,7 @@ class RealtimeForecastingTask(ForecastingTask):
                 raise ValueError(
                     f"predicted_price must be > 0; got {predicted_price!r}"
                 )
-            derived = (
-                "long" if predicted_price >= float(snapshot.price) else "short"
-            )
+            derived = "long" if predicted_price >= float(snapshot.price) else "short"
             if direction is None:
                 direction = derived
             elif direction != derived:
@@ -496,13 +489,10 @@ class RealtimeForecastingTask(ForecastingTask):
                 )
         elif direction is None:
             raise ValueError(
-                "action must supply at least one of predicted_price "
-                "or direction"
+                "action must supply at least one of predicted_price or direction"
             )
 
-        resolve_at = resolve_at_for_horizon(
-            now, self._interval, self._horizon_bars
-        )
+        resolve_at = resolve_at_for_horizon(now, self._interval, self._horizon_bars)
         pred_record: dict[str, Any] = {
             "session_id": self._session_id,
             "provider": self._provider.name,

@@ -153,8 +153,7 @@ class SimulatedExecutor(BaseExecutor):
                     order_intent=intent,
                     reason_code=RejectionCode.INVALID_ACTION,
                     reason=(
-                        f"Unknown action: {intent.action!r} "
-                        "(expected buy/sell/hold)"
+                        f"Unknown action: {intent.action!r} (expected buy/sell/hold)"
                     ),
                 ),
             )
@@ -196,7 +195,7 @@ class SimulatedExecutor(BaseExecutor):
             # Reserve at worst-case slippage + tx cost so a marketable
             # fill at a worse price can't over-extend.
             unit_cost = ref_price * (1.0 + max(slippage, 0.0))
-            unit_cost *= (1.0 + max(tx_cost, 0.0))
+            unit_cost *= 1.0 + max(tx_cost, 0.0)
             reservation = unit_cost * intent.quantity
             free_cash = self._cash - self._reserved_cash
             if reservation > free_cash + 1e-9:
@@ -227,9 +226,7 @@ class SimulatedExecutor(BaseExecutor):
             current_pos = self._positions.get(intent.symbol, 0.0)
             new_pos = current_pos - intent.quantity
             if new_pos < 0.0:
-                equity, projected_gross = self._equity_and_gross(
-                    intent.symbol, new_pos
-                )
+                equity, projected_gross = self._equity_and_gross(intent.symbol, new_pos)
                 if projected_gross + self._reserved_cash > equity + 1e-9:
                     return SubmitResult(
                         kind="rejected",
@@ -632,9 +629,7 @@ class SimulatedExecutor(BaseExecutor):
             return low <= order.limit_price
         return high >= order.limit_price
 
-    def _is_stop_triggered(
-        self, intent: OrderIntent, low: float, high: float
-    ) -> bool:
+    def _is_stop_triggered(self, intent: OrderIntent, low: float, high: float) -> bool:
         if intent.stop_price is None:
             return False
         if intent.action == ActionVerb.BUY:
@@ -761,7 +756,7 @@ class SimulatedExecutor(BaseExecutor):
             timestamp=timestamp,
             step=step,
             order_id=order.order_id,
-            cash_reservation=0.0,        # already released above
+            cash_reservation=0.0,  # already released above
             position_reservation=0.0,
             filled_step=step,
             order_type=order.order_type,
@@ -870,8 +865,7 @@ class SimulatedExecutor(BaseExecutor):
         self._reserved_cash += cash_reservation
         if position_reservation > 0:
             self._reserved_positions[intent.symbol] = (
-                self._reserved_positions.get(intent.symbol, 0.0)
-                + position_reservation
+                self._reserved_positions.get(intent.symbol, 0.0) + position_reservation
             )
         return SubmitResult(kind="accepted", accepted=order)
 

@@ -101,16 +101,13 @@ def sanitize_engineered_features(
                 if k >= _PREVIEW_LIMIT:
                     logger.warning(
                         "[%s] ... and %d more anomalous row(s) (truncated).",
-                        tag, n_anomalies - _PREVIEW_LIMIT,
+                        tag,
+                        n_anomalies - _PREVIEW_LIMIT,
                     )
                     break
                 _emit_anomaly_warning(df, raw, int(df_idx), scan_cols, tag, ts_col)
 
-    cleaned = (
-        df.replace([np.inf, -np.inf], np.nan)
-          .dropna()
-          .reset_index(drop=True)
-    )
+    cleaned = df.replace([np.inf, -np.inf], np.nan).dropna().reset_index(drop=True)
     return cleaned, n_anomalies
 
 
@@ -139,7 +136,11 @@ def _emit_anomaly_warning(
     logger.warning(
         "[%s] anomalous engineered row idx=%d ts=%s: %s. %s "
         "Sanitizing (inf -> NaN -> dropna).",
-        tag, df_idx, ts, ", ".join(offenders) or "(no detail)", upstream,
+        tag,
+        df_idx,
+        ts,
+        ", ".join(offenders) or "(no detail)",
+        upstream,
     )
 
 
@@ -161,8 +162,11 @@ def _upstream_context(raw: pd.DataFrame, df_idx: int, ts_col: str) -> str:
         r = raw.iloc[cand]
         try:
             o, h, l, c, v = (
-                float(r["open"]), float(r["high"]), float(r["low"]),
-                float(r["close"]), float(r["volume"]),
+                float(r["open"]),
+                float(r["high"]),
+                float(r["low"]),
+                float(r["close"]),
+                float(r["volume"]),
             )
         except (KeyError, TypeError, ValueError):
             continue

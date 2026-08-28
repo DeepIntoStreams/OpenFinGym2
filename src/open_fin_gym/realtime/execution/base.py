@@ -37,7 +37,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-
 # ---------------------------------------------------------------------------
 # Vocabulary -- string constants kept simple so they round-trip cleanly
 # through JSON / TOML without introducing an enum-import cycle.
@@ -63,9 +62,9 @@ class TimeInForce:
 class OrderStatus:
     PENDING = "pending"
     FILLED = "filled"
-    CANCELLED = "cancelled"   # agent-initiated cancel
-    EXPIRED = "expired"        # IOC didn't fill / episode ended
-    REJECTED = "rejected"      # never accepted into the queue
+    CANCELLED = "cancelled"  # agent-initiated cancel
+    EXPIRED = "expired"  # IOC didn't fill / episode ended
+    REJECTED = "rejected"  # never accepted into the queue
     # Provisional fill on AlpacaPaperExecutor: the order was accepted by
     # Alpaca and we provisionally booked it at the market_price snapshot
     # taken when submit() was called. The real filled_avg_price arrives
@@ -118,7 +117,7 @@ class OrderIntent:
     :class:`Rejection` for those.
     """
 
-    action: str          # "buy" | "sell" -- normalised after parsing
+    action: str  # "buy" | "sell" -- normalised after parsing
     symbol: str
     quantity: float
     order_type: str = OrderType.MARKET
@@ -128,9 +127,7 @@ class OrderIntent:
     client_tag: str | None = None  # optional agent-assigned hint, echoed in fills
 
     @classmethod
-    def from_dict(
-        cls, d: dict[str, Any]
-    ) -> "OrderIntent | Rejection":
+    def from_dict(cls, d: dict[str, Any]) -> "OrderIntent | Rejection":
         """Parse + light validate. Returns either an OrderIntent or a Rejection.
 
         Heavy validation (cash, position) is the executor's job; this
@@ -214,10 +211,7 @@ class OrderIntent:
             return Rejection(
                 order_intent=d,
                 reason_code=RejectionCode.INVALID_TIF,
-                reason=(
-                    f"tif must be one of {sorted(TimeInForce.ALL)}, "
-                    f"got {tif!r}"
-                ),
+                reason=(f"tif must be one of {sorted(TimeInForce.ALL)}, got {tif!r}"),
             )
 
         # Required price fields per order_type.
@@ -290,17 +284,17 @@ class PendingOrder:
 
     order_id: str
     symbol: str
-    action: str               # "buy" | "sell"
+    action: str  # "buy" | "sell"
     quantity: float
-    order_type: str           # OrderType.*
+    order_type: str  # OrderType.*
     limit_price: float | None
     stop_price: float | None
-    tif: str                  # TimeInForce.*
+    tif: str  # TimeInForce.*
     submitted_at: datetime | None = None
     submitted_step: int = 0
-    reserved_cash: float = 0.0       # cash held for buy orders
-    reserved_position: float = 0.0   # position units held for sell orders
-    triggered: bool = False           # for stop_limit: stop has fired, now a limit
+    reserved_cash: float = 0.0  # cash held for buy orders
+    reserved_position: float = 0.0  # position units held for sell orders
+    triggered: bool = False  # for stop_limit: stop has fired, now a limit
     client_tag: str | None = None
 
     def to_dict(self) -> dict[str, Any]:

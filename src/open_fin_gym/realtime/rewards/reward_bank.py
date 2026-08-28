@@ -252,9 +252,7 @@ class ACFLoss(Loss):
         if self.stationary:
             acf_fake = acf_torch(pred, self.max_lag)
         else:
-            acf_fake = non_stationary_acf_torch(pred, symmetric=False).to(
-                pred.device
-            )
+            acf_fake = non_stationary_acf_torch(pred, symmetric=False).to(pred.device)
         return acf_diff(acf_fake - self.acf_real.to(pred.device)).mean()
 
 
@@ -318,9 +316,7 @@ class CovLoss(Loss):
 
     def forward(self, pred):
         covariance_fake = cov_torch(pred)
-        return cov_diff(
-            covariance_fake - self.covariance_real.to(pred.device)
-        ).mean()
+        return cov_diff(covariance_fake - self.covariance_real.to(pred.device)).mean()
 
 
 def calculate_frechet_distance(mu1, sigma1, mu2, sigma2, eps=1e-6):
@@ -352,12 +348,12 @@ def calculate_frechet_distance(mu1, sigma1, mu2, sigma2, eps=1e-6):
     sigma1 = np.atleast_2d(sigma1)
     sigma2 = np.atleast_2d(sigma2)
 
-    assert (
-        mu1.shape == mu2.shape
-    ), "Training and test mean vectors have different lengths"
-    assert (
-        sigma1.shape == sigma2.shape
-    ), "Training and test covariances have different dimensions"
+    assert mu1.shape == mu2.shape, (
+        "Training and test mean vectors have different lengths"
+    )
+    assert sigma1.shape == sigma2.shape, (
+        "Training and test covariances have different dimensions"
+    )
 
     diff = mu1 - mu2
     # product might be almost singular
@@ -594,9 +590,7 @@ class cross_correlation(Loss):
         self.gt = gt
 
     def forward(self, pred):
-        fake_corre = torch.from_numpy(
-            np.corrcoef(pred.mean(1).permute(1, 0))
-        ).float()
+        fake_corre = torch.from_numpy(np.corrcoef(pred.mean(1).permute(1, 0))).float()
         real_corre = torch.from_numpy(
             np.corrcoef(self.gt.mean(1).permute(1, 0))
         ).float()
@@ -631,10 +625,9 @@ class SigW1Metric:
         augmentations: Optional[Tuple] = (Scale(),),
         normalise: bool = True,
     ):
-        assert (
-            len(gt.shape) == 3
-        ), "Path needs to be 3-dimensional. Received %s dimension(s)." % (
-            len(gt.shape),
+        assert len(gt.shape) == 3, (
+            "Path needs to be 3-dimensional. Received %s dimension(s)."
+            % (len(gt.shape),)
         )
 
         self.augmentations = augmentations
@@ -909,12 +902,12 @@ class HistogramLoss(Loss):
                 f"pred is on device {pred.device}, but densities are on {self.densities[0].device}. Moving pred to the correct device."
             )
             pred = pred.to(self.densities[0].device)
-        assert (
-            pred.shape[2] == self.num_features
-        ), f"Expected {self.num_features} features in pred, but got {pred.shape[2]}."
-        assert (
-            pred.shape[1] == self.num_time_steps
-        ), f"Expected {self.num_time_steps} time steps in pred, but got {pred.shape[1]}."
+        assert pred.shape[2] == self.num_features, (
+            f"Expected {self.num_features} features in pred, but got {pred.shape[2]}."
+        )
+        assert pred.shape[1] == self.num_time_steps, (
+            f"Expected {self.num_time_steps} time steps in pred, but got {pred.shape[1]}."
+        )
 
         all_losses: typing.List = []
         # To store time steps with NaNs
@@ -1067,9 +1060,7 @@ class VARMetricLoss(Loss):
         real_tail_t = torch.tensor(
             self._real_tail, dtype=pred.dtype, device=pred.device
         )
-        fake_tail_t = torch.tensor(
-            fake_tail, dtype=pred.dtype, device=pred.device
-        )
+        fake_tail_t = torch.tensor(fake_tail, dtype=pred.dtype, device=pred.device)
 
         return (real_tail_t - fake_tail_t).abs().mean()
 
@@ -1156,10 +1147,7 @@ class MAPELoss(Loss):
         self.eps = eps
 
     def forward(self, pred: torch.Tensor):
-        return (
-            (pred.float() - self.gt).abs()
-            / (self.gt.abs() + self.eps)
-        ).mean()
+        return ((pred.float() - self.gt).abs() / (self.gt.abs() + self.eps)).mean()
 
 
 class DirectionalAccuracy(Loss):
@@ -1242,7 +1230,7 @@ class PearsonCorrelation(Loss):
         y = self.gt.flatten()
         x_c = x - x.mean()
         y_c = y - y.mean()
-        denom = torch.sqrt((x_c ** 2).sum() * (y_c ** 2).sum()) + self.eps
+        denom = torch.sqrt((x_c**2).sum() * (y_c**2).sum()) + self.eps
         return (x_c * y_c).sum() / denom
 
 
@@ -1263,7 +1251,7 @@ class SpearmanCorrelation(Loss):
         y = self.gt.flatten().argsort().argsort().float()
         x_c = x - x.mean()
         y_c = y - y.mean()
-        denom = torch.sqrt((x_c ** 2).sum() * (y_c ** 2).sum()) + self.eps
+        denom = torch.sqrt((x_c**2).sum() * (y_c**2).sum()) + self.eps
         return (x_c * y_c).sum() / denom
 
 
@@ -1320,7 +1308,7 @@ class HuberLoss(Loss):
         abs_err = err.abs()
         return torch.where(
             abs_err <= self.delta,
-            0.5 * err ** 2,
+            0.5 * err**2,
             self.delta * (abs_err - 0.5 * self.delta),
         ).mean()
 
@@ -1358,7 +1346,7 @@ class SortinoRatio(Loss):
         if strat.numel() < 1:
             return torch.zeros((), dtype=strat.dtype, device=strat.device)
         downside = torch.clamp(strat, max=0.0)
-        return strat.mean() / (torch.sqrt((downside ** 2).mean()) + self.eps)
+        return strat.mean() / (torch.sqrt((downside**2).mean()) + self.eps)
 
 
 # ------ Embedding-space Metrics (replacements for model-taking FID/KID) ------
@@ -1546,7 +1534,9 @@ class DirectionAccuracy(TradingReward):
     def __init__(self) -> None:
         super().__init__("direction_accuracy")
 
-    def compute_per_trade(self, predictions: list[dict], ground_truths: list[dict]) -> list[float]:
+    def compute_per_trade(
+        self, predictions: list[dict], ground_truths: list[dict]
+    ) -> list[float]:
         results: list[float] = []
         for pred, gt in zip(predictions, ground_truths):
             actual_dir = "long" if gt["actual_return"] > 0 else "short"
@@ -1560,7 +1550,9 @@ class PnL(TradingReward):
     def __init__(self) -> None:
         super().__init__("pnl")
 
-    def compute_per_trade(self, predictions: list[dict], ground_truths: list[dict]) -> list[float]:
+    def compute_per_trade(
+        self, predictions: list[dict], ground_truths: list[dict]
+    ) -> list[float]:
         return _pnl_list(predictions, ground_truths)
 
 
@@ -1577,7 +1569,9 @@ class ReturnMAE(TradingReward):
     def __init__(self) -> None:
         super().__init__("return_mae")
 
-    def compute_per_trade(self, predictions: list[dict], ground_truths: list[dict]) -> list[float]:
+    def compute_per_trade(
+        self, predictions: list[dict], ground_truths: list[dict]
+    ) -> list[float]:
         out: list[float] = []
         for p, g in zip(predictions, ground_truths):
             pr = _derive_predicted_return(p, g)
@@ -1593,10 +1587,14 @@ class SharpeRatio(TradingReward):
     def __init__(self) -> None:
         super().__init__("sharpe_ratio")
 
-    def compute_per_trade(self, predictions: list[dict], ground_truths: list[dict]) -> list[float]:
+    def compute_per_trade(
+        self, predictions: list[dict], ground_truths: list[dict]
+    ) -> list[float]:
         return _pnl_list(predictions, ground_truths)
 
-    def compute_aggregate(self, predictions: list[dict], ground_truths: list[dict]) -> float:
+    def compute_aggregate(
+        self, predictions: list[dict], ground_truths: list[dict]
+    ) -> float:
         pnls = self.compute_per_trade(predictions, ground_truths)
         if len(pnls) < 2:
             return 0.0
@@ -1612,10 +1610,14 @@ class MaxDrawdown(TradingReward):
     def __init__(self) -> None:
         super().__init__("max_drawdown")
 
-    def compute_per_trade(self, predictions: list[dict], ground_truths: list[dict]) -> list[float]:
+    def compute_per_trade(
+        self, predictions: list[dict], ground_truths: list[dict]
+    ) -> list[float]:
         return _pnl_list(predictions, ground_truths)
 
-    def compute_aggregate(self, predictions: list[dict], ground_truths: list[dict]) -> float:
+    def compute_aggregate(
+        self, predictions: list[dict], ground_truths: list[dict]
+    ) -> float:
         pnls = self.compute_per_trade(predictions, ground_truths)
         if not pnls:
             return 0.0
@@ -1634,10 +1636,14 @@ class WinRate(TradingReward):
     def __init__(self) -> None:
         super().__init__("win_rate")
 
-    def compute_per_trade(self, predictions: list[dict], ground_truths: list[dict]) -> list[float]:
+    def compute_per_trade(
+        self, predictions: list[dict], ground_truths: list[dict]
+    ) -> list[float]:
         return _pnl_list(predictions, ground_truths)
 
-    def compute_aggregate(self, predictions: list[dict], ground_truths: list[dict]) -> float:
+    def compute_aggregate(
+        self, predictions: list[dict], ground_truths: list[dict]
+    ) -> float:
         pnls = self.compute_per_trade(predictions, ground_truths)
         if not pnls:
             return 0.0
@@ -1661,7 +1667,9 @@ class QuantityPnL(TradingReward):
     def __init__(self) -> None:
         super().__init__("quantity_pnl")
 
-    def compute_per_trade(self, predictions: list[dict], ground_truths: list[dict]) -> list[float]:
+    def compute_per_trade(
+        self, predictions: list[dict], ground_truths: list[dict]
+    ) -> list[float]:
         out: list[float] = []
         for pred, gt in zip(predictions, ground_truths):
             qty = float(pred.get("quantity", 1.0))
@@ -1709,7 +1717,9 @@ class PriceMSE(TradingReward):
     def __init__(self) -> None:
         super().__init__("price_mse")
 
-    def compute_per_trade(self, predictions: list[dict], ground_truths: list[dict]) -> list[float]:
+    def compute_per_trade(
+        self, predictions: list[dict], ground_truths: list[dict]
+    ) -> list[float]:
         out: list[float] = []
         for pred, gt in zip(predictions, ground_truths):
             pp = pred.get("predicted_price")
@@ -1720,7 +1730,9 @@ class PriceMSE(TradingReward):
             out.append((float(pp) - float(ep)) ** 2)
         return out
 
-    def compute_aggregate(self, predictions: list[dict], ground_truths: list[dict]) -> float:
+    def compute_aggregate(
+        self, predictions: list[dict], ground_truths: list[dict]
+    ) -> float:
         return _nan_safe_mean(self.compute_per_trade(predictions, ground_truths))
 
 
@@ -1737,7 +1749,9 @@ class PriceRMSE(TradingReward):
     def __init__(self) -> None:
         super().__init__("price_rmse")
 
-    def compute_per_trade(self, predictions: list[dict], ground_truths: list[dict]) -> list[float]:
+    def compute_per_trade(
+        self, predictions: list[dict], ground_truths: list[dict]
+    ) -> list[float]:
         out: list[float] = []
         for pred, gt in zip(predictions, ground_truths):
             pp = pred.get("predicted_price")
@@ -1748,7 +1762,9 @@ class PriceRMSE(TradingReward):
             out.append((float(pp) - float(ep)) ** 2)
         return out
 
-    def compute_aggregate(self, predictions: list[dict], ground_truths: list[dict]) -> float:
+    def compute_aggregate(
+        self, predictions: list[dict], ground_truths: list[dict]
+    ) -> float:
         mean_sq = _nan_safe_mean(self.compute_per_trade(predictions, ground_truths))
         if math.isnan(mean_sq):
             return float("nan")
@@ -1761,7 +1777,9 @@ class PriceMAE(TradingReward):
     def __init__(self) -> None:
         super().__init__("price_mae")
 
-    def compute_per_trade(self, predictions: list[dict], ground_truths: list[dict]) -> list[float]:
+    def compute_per_trade(
+        self, predictions: list[dict], ground_truths: list[dict]
+    ) -> list[float]:
         out: list[float] = []
         for pred, gt in zip(predictions, ground_truths):
             pp = pred.get("predicted_price")
@@ -1772,7 +1790,9 @@ class PriceMAE(TradingReward):
             out.append(abs(float(pp) - float(ep)))
         return out
 
-    def compute_aggregate(self, predictions: list[dict], ground_truths: list[dict]) -> float:
+    def compute_aggregate(
+        self, predictions: list[dict], ground_truths: list[dict]
+    ) -> float:
         return _nan_safe_mean(self.compute_per_trade(predictions, ground_truths))
 
 
@@ -1788,7 +1808,9 @@ class PriceMAPE(TradingReward):
         super().__init__("price_mape")
         self._eps = eps
 
-    def compute_per_trade(self, predictions: list[dict], ground_truths: list[dict]) -> list[float]:
+    def compute_per_trade(
+        self, predictions: list[dict], ground_truths: list[dict]
+    ) -> list[float]:
         out: list[float] = []
         for pred, gt in zip(predictions, ground_truths):
             pp = pred.get("predicted_price")
@@ -1803,7 +1825,9 @@ class PriceMAPE(TradingReward):
             out.append(abs(float(pp) - float(ep)) / denom)
         return out
 
-    def compute_aggregate(self, predictions: list[dict], ground_truths: list[dict]) -> float:
+    def compute_aggregate(
+        self, predictions: list[dict], ground_truths: list[dict]
+    ) -> float:
         return _nan_safe_mean(self.compute_per_trade(predictions, ground_truths))
 
 
@@ -1821,10 +1845,14 @@ class PriceR2(TradingReward):
         super().__init__("price_r2")
         self._eps = eps
 
-    def compute_per_trade(self, predictions: list[dict], ground_truths: list[dict]) -> list[float]:
+    def compute_per_trade(
+        self, predictions: list[dict], ground_truths: list[dict]
+    ) -> list[float]:
         return [float("nan")] * len(predictions)
 
-    def compute_aggregate(self, predictions: list[dict], ground_truths: list[dict]) -> float:
+    def compute_aggregate(
+        self, predictions: list[dict], ground_truths: list[dict]
+    ) -> float:
         pairs: list[tuple[float, float]] = []
         for pred, gt in zip(predictions, ground_truths):
             pp = pred.get("predicted_price")
@@ -1854,10 +1882,14 @@ class PricePearson(TradingReward):
         super().__init__("price_pearson")
         self._eps = eps
 
-    def compute_per_trade(self, predictions: list[dict], ground_truths: list[dict]) -> list[float]:
+    def compute_per_trade(
+        self, predictions: list[dict], ground_truths: list[dict]
+    ) -> list[float]:
         return [float("nan")] * len(predictions)
 
-    def compute_aggregate(self, predictions: list[dict], ground_truths: list[dict]) -> float:
+    def compute_aggregate(
+        self, predictions: list[dict], ground_truths: list[dict]
+    ) -> float:
         pairs: list[tuple[float, float]] = []
         for pred, gt in zip(predictions, ground_truths):
             pp = pred.get("predicted_price")
@@ -1892,7 +1924,9 @@ class ReturnMSE(TradingReward):
     def __init__(self) -> None:
         super().__init__("return_mse")
 
-    def compute_per_trade(self, predictions: list[dict], ground_truths: list[dict]) -> list[float]:
+    def compute_per_trade(
+        self, predictions: list[dict], ground_truths: list[dict]
+    ) -> list[float]:
         out: list[float] = []
         for pred, gt in zip(predictions, ground_truths):
             pr = _derive_predicted_return(pred, gt)
@@ -1903,7 +1937,9 @@ class ReturnMSE(TradingReward):
             out.append((pr - float(ar)) ** 2)
         return out
 
-    def compute_aggregate(self, predictions: list[dict], ground_truths: list[dict]) -> float:
+    def compute_aggregate(
+        self, predictions: list[dict], ground_truths: list[dict]
+    ) -> float:
         return _nan_safe_mean(self.compute_per_trade(predictions, ground_truths))
 
 
@@ -1913,7 +1949,9 @@ class ReturnRMSE(TradingReward):
     def __init__(self) -> None:
         super().__init__("return_rmse")
 
-    def compute_per_trade(self, predictions: list[dict], ground_truths: list[dict]) -> list[float]:
+    def compute_per_trade(
+        self, predictions: list[dict], ground_truths: list[dict]
+    ) -> list[float]:
         out: list[float] = []
         for pred, gt in zip(predictions, ground_truths):
             pr = _derive_predicted_return(pred, gt)
@@ -1924,7 +1962,9 @@ class ReturnRMSE(TradingReward):
             out.append((pr - float(ar)) ** 2)
         return out
 
-    def compute_aggregate(self, predictions: list[dict], ground_truths: list[dict]) -> float:
+    def compute_aggregate(
+        self, predictions: list[dict], ground_truths: list[dict]
+    ) -> float:
         mean_sq = _nan_safe_mean(self.compute_per_trade(predictions, ground_truths))
         if math.isnan(mean_sq):
             return float("nan")

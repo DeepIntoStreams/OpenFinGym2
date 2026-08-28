@@ -194,8 +194,8 @@ class AlpacaPaperExecutor(BaseExecutor):
         self._snapshot_lock = threading.Lock()
         self._refresh_event = threading.Event()  # signal "refresh now"
         self._refresh_pause = threading.Event()  # set by reset() to suspend
-        self._refresh_stop = threading.Event()   # set by close() to terminate
-        self._last_nudge_ts: float = 0.0         # debounce for _nudge_refresh
+        self._refresh_stop = threading.Event()  # set by close() to terminate
+        self._last_nudge_ts: float = 0.0  # debounce for _nudge_refresh
         # Monotonic time of the last LOCAL cash mutation (a fill). Gates the
         # REST cash sync in _reconcile_with_rest so a lagging /v2/account
         # snapshot can't erase a just-filled cash delta.
@@ -214,9 +214,9 @@ class AlpacaPaperExecutor(BaseExecutor):
         # a prior session, and residual open orders can fill mid-this-
         # session without the agent knowing. Either contaminates PnL.
         residual_positions = [
-            p for p in positions
-            if isinstance(p, dict)
-            and abs(float(p.get("qty", 0.0))) > _QTY_EPSILON
+            p
+            for p in positions
+            if isinstance(p, dict) and abs(float(p.get("qty", 0.0))) > _QTY_EPSILON
         ]
         residual_orders = [
             o for o in open_orders if isinstance(o, dict) and o.get("id")
@@ -224,9 +224,7 @@ class AlpacaPaperExecutor(BaseExecutor):
         if residual_positions or residual_orders:
             if not flatten_on_start:
                 raise RuntimeError(
-                    self._format_dirty_start_error(
-                        residual_positions, residual_orders
-                    )
+                    self._format_dirty_start_error(residual_positions, residual_orders)
                 )
             logger.warning(
                 "Alpaca paper account is dirty at startup "
@@ -361,22 +359,16 @@ class AlpacaPaperExecutor(BaseExecutor):
             "",
         ]
         if residual_positions:
-            lines.append(
-                f"Open positions ({len(residual_positions)}):"
-            )
+            lines.append(f"Open positions ({len(residual_positions)}):")
             for p in residual_positions:
                 sym = p.get("symbol", "?")
                 qty = p.get("qty", "?")
                 avg = p.get("avg_entry_price", "?")
                 side = p.get("side", "?")
-                lines.append(
-                    f"  - {sym}: qty={qty} avg_entry_price={avg} side={side}"
-                )
+                lines.append(f"  - {sym}: qty={qty} avg_entry_price={avg} side={side}")
             lines.append("")
         if residual_orders:
-            lines.append(
-                f"Open orders ({len(residual_orders)}):"
-            )
+            lines.append(f"Open orders ({len(residual_orders)}):")
             for o in residual_orders:
                 lines.append(
                     "  - id={id} symbol={symbol} side={side} qty={qty} "
@@ -629,9 +621,7 @@ class AlpacaPaperExecutor(BaseExecutor):
                 except BaseException:  # noqa: BLE001 — daemon thread isolation
                     if self._refresh_stop.is_set():
                         return
-                    self._safe_log(
-                        "debug", "account refresh failed", exc_info=True
-                    )
+                    self._safe_log("debug", "account refresh failed", exc_info=True)
             try:
                 # Wait either for the periodic timer OR an immediate-refresh
                 # signal (set by submit/cancel/expire_all to nudge the
@@ -641,9 +631,7 @@ class AlpacaPaperExecutor(BaseExecutor):
             except BaseException:
                 return
 
-    def _reconcile_with_rest(
-        self, positions: Any, account: Any
-    ) -> None:
+    def _reconcile_with_rest(self, positions: Any, account: Any) -> None:
         """Detect divergence between the local model and the REST snapshot,
         then resolve it via the authoritative order stream — never by
         trusting the eventually-consistent ``/v2/positions`` aggregate.
@@ -702,17 +690,12 @@ class AlpacaPaperExecutor(BaseExecutor):
 
                 # DETECT only — never mutate positions from the aggregate.
                 for sym, rest_qty in rest_by_symbol.items():
-                    if abs(
-                        rest_qty - self._positions.get(sym, 0.0)
-                    ) > _QTY_EPSILON:
+                    if abs(rest_qty - self._positions.get(sym, 0.0)) > _QTY_EPSILON:
                         divergent = True
                         break
                 if not divergent:
                     for sym, local_qty in self._positions.items():
-                        if (
-                            abs(local_qty) > _QTY_EPSILON
-                            and sym not in rest_by_symbol
-                        ):
+                        if abs(local_qty) > _QTY_EPSILON and sym not in rest_by_symbol:
                             divergent = True
                             break
 
@@ -767,8 +750,7 @@ class AlpacaPaperExecutor(BaseExecutor):
                     return
                 self._safe_log(
                     "debug",
-                    "asyncio.run for trade_updates failed; "
-                    "reconnecting in 1s",
+                    "asyncio.run for trade_updates failed; reconnecting in 1s",
                     exc_info=True,
                 )
             if self._refresh_stop.is_set():
@@ -818,6 +800,7 @@ class AlpacaPaperExecutor(BaseExecutor):
         raised.
         """
         import websockets  # optional dependency
+
         try:
             async with websockets.connect(self._ws_url) as ws:
                 await ws.send(
@@ -853,9 +836,7 @@ class AlpacaPaperExecutor(BaseExecutor):
                     # Alpaca wraps trade_updates in {"stream": "trade_updates",
                     # "data": {...event payload...}}. Tolerate the bare-event
                     # shape too (some test fixtures use that).
-                    data = (
-                        payload.get("data") if isinstance(payload, dict) else None
-                    )
+                    data = payload.get("data") if isinstance(payload, dict) else None
                     if data is None:
                         data = payload
                     self._handle_trade_update(data)
@@ -912,9 +893,7 @@ class AlpacaPaperExecutor(BaseExecutor):
         # informational only — local state already reflects the
         # provisional booking from submit().
 
-    def _apply_fill_event(
-        self, order: dict[str, Any], order_id: str
-    ) -> None:
+    def _apply_fill_event(self, order: dict[str, Any], order_id: str) -> None:
         symbol = str(order.get("symbol", ""))
         if not symbol:
             return
@@ -938,9 +917,7 @@ class AlpacaPaperExecutor(BaseExecutor):
         except ValueError:
             ts = datetime.now(timezone.utc)
 
-        order_type = self._reverse_alpaca_type(
-            str(order.get("type", "market"))
-        )
+        order_type = self._reverse_alpaca_type(str(order.get("type", "market")))
         tif = self._reverse_alpaca_tif(str(order.get("time_in_force", "gtc")))
         limit_price = (
             float(order["limit_price"])
@@ -948,9 +925,7 @@ class AlpacaPaperExecutor(BaseExecutor):
             else None
         )
         stop_price = (
-            float(order["stop_price"])
-            if order.get("stop_price") is not None
-            else None
+            float(order["stop_price"]) if order.get("stop_price") is not None else None
         )
 
         with self._snapshot_lock:
@@ -1027,9 +1002,7 @@ class AlpacaPaperExecutor(BaseExecutor):
             qty = float(order.get("qty") or 0.0)
         except (TypeError, ValueError):
             qty = 0.0
-        order_type = self._reverse_alpaca_type(
-            str(order.get("type", "market"))
-        )
+        order_type = self._reverse_alpaca_type(str(order.get("type", "market")))
         tif = self._reverse_alpaca_tif(str(order.get("time_in_force", "gtc")))
         limit_price = (
             float(order["limit_price"])
@@ -1037,18 +1010,12 @@ class AlpacaPaperExecutor(BaseExecutor):
             else None
         )
         stop_price = (
-            float(order["stop_price"])
-            if order.get("stop_price") is not None
-            else None
+            float(order["stop_price"]) if order.get("stop_price") is not None else None
         )
         mapped = (
             OrderStatus.CANCELLED
             if event.startswith("cancel")
-            else (
-                OrderStatus.REJECTED
-                if event == "rejected"
-                else OrderStatus.EXPIRED
-            )
+            else (OrderStatus.REJECTED if event == "rejected" else OrderStatus.EXPIRED)
         )
         with self._snapshot_lock:
             if order_id in self._reported_order_ids:
@@ -1094,9 +1061,7 @@ class AlpacaPaperExecutor(BaseExecutor):
         """Apply a fill to local state. Caller MUST hold _snapshot_lock."""
         signed = 1.0 if side == ActionVerb.BUY else -1.0
         notional = price * qty
-        self._positions[symbol] = (
-            self._positions.get(symbol, 0.0) + qty * signed
-        )
+        self._positions[symbol] = self._positions.get(symbol, 0.0) + qty * signed
         # Collapse to 0 to keep the dict tidy. (Math still works either
         # way because the entry is multiplied by current_price.)
         if abs(self._positions[symbol]) < _QTY_EPSILON:
@@ -1153,8 +1118,7 @@ class AlpacaPaperExecutor(BaseExecutor):
         if abs(price_delta) > 1e-9:
             signed = 1.0 if side == ActionVerb.BUY else -1.0
             self._cost_basis[symbol] = (
-                self._cost_basis.get(symbol, 0.0)
-                + price_delta * filled_qty * signed
+                self._cost_basis.get(symbol, 0.0) + price_delta * filled_qty * signed
             )
             self._cash -= price_delta * filled_qty * signed
             self._cash_mut_ts = time.monotonic()
@@ -1194,8 +1158,11 @@ class AlpacaPaperExecutor(BaseExecutor):
                 event = "rejected"
             else:
                 continue
-            synthetic = {"event": event, "order": entry,
-                         "timestamp": entry.get("updated_at")}
+            synthetic = {
+                "event": event,
+                "order": entry,
+                "timestamp": entry.get("updated_at"),
+            }
             self._handle_trade_update(synthetic)
 
     # ------------------------------------------------------------------
@@ -1240,8 +1207,7 @@ class AlpacaPaperExecutor(BaseExecutor):
                     order_intent=intent,
                     reason_code=RejectionCode.INVALID_ACTION,
                     reason=(
-                        f"Unknown action: {intent.action!r} "
-                        "(expected buy/sell/hold)"
+                        f"Unknown action: {intent.action!r} (expected buy/sell/hold)"
                     ),
                 ),
             )
