@@ -22,11 +22,15 @@ for _ in range(60):
 
 data = call("/features")
 
-# Reference policy: a random walk forecast, i.e. carry the last observed value.
+# Reference policy: predict the mean of the training targets. The features are
+# derived quantities rather than prices, so carrying one of them forward would
+# be off by orders of magnitude against an absolute-price target.
+targets = data["train_ground_truth"]
 features = data["features"]
-predictions = {
-    symbol: [row[-1] if isinstance(row, list) else row for row in series]
-    for symbol, series in features.items()
-}
+predictions = {}
+for symbol, series in features.items():
+    y = [float(v) for v in targets[symbol]]
+    predictions[symbol] = [sum(y) / len(y)] * len(series)
+
 print(json.dumps(call("/predict", {"predictions": predictions})))
 PY
