@@ -1,5 +1,6 @@
 import tomllib
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -14,6 +15,9 @@ class Resolution(BaseModel):
 
 class BundleConfig(BaseModel):
     reasoning: str
+    fit: Literal["routed", "partial_match", "no_match"] = Field(
+        description="Whether this task can represent the paper's experiment"
+    )
     symbols: list[str] = Field(description="Tickers the agent may trade")
     target_symbols: list[str] = Field(description="Subset of symbols the metrics score")
     data_resolution: str = Field(description="Bar cadence the episode steps at")
@@ -57,9 +61,14 @@ The task is fixed and is described as:
 
 {descriptor["description"]}
 
-Choose values for the following fields so the task reflects the instruments, frequency,
-and horizon the paper trades. Where the paper is silent or its choice is unavailable,
-keep the default rather than inventing something.
+First decide `fit`: whether this fixed task can represent what the paper does at all.
+Answer no_match when the paper's experiment is a different kind of task, or trades a
+market this task cannot reach, rather than stretching it to fit. A no_match costs
+nothing, whereas a forced fit produces a task that misrepresents the paper.
+
+Then choose values for the following fields so the task reflects the instruments,
+frequency, and horizon the paper trades. Where the paper is silent or its choice is
+unavailable, keep the default rather than inventing something.
 
 {fields}
 

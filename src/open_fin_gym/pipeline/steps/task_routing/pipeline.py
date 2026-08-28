@@ -95,9 +95,12 @@ class TaskRouter:
                     set_paper_status(self.db, paper, PaperStatus.TASK_EXTRACTION_FAILED)
                     continue
 
+                configs.append({"paper_id": paper.paper_id, **config.model_dump()})
+                if config.fit == "no_match":
+                    continue
+
                 self.write_bundle(bundle_path, paper, descriptor, config)
                 set_paper_status(self.db, paper, PaperStatus.ROUTED_TO_CURATED)
-                configs.append({"paper_id": paper.paper_id, **config.model_dump()})
 
         with open(output_path / f"{scope.id}.json", "w") as f:
             json.dump(configs, f, indent=4)
@@ -134,6 +137,9 @@ class TaskRouter:
             ignore=shutil.ignore_patterns("__pycache__"),
         )
 
-        episode = {**descriptor["defaults"], **config.model_dump(exclude={"reasoning"})}
+        episode = {
+            **descriptor["defaults"],
+            **config.model_dump(exclude={"reasoning", "fit"}),
+        }
         with open(task_dir / "environment" / "episode.json", "w") as f:
             json.dump(episode, f, indent=2)
