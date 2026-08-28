@@ -53,3 +53,11 @@ mlflow = "mlflow server --host 127.0.0.1 --port 8080 --backend-store-uri sqlite:
 
 [tool.pytest.ini_options]
 python_classes = ["PytestCollect*"]
+
+[tool.ruff]
+# The market and trading stack under realtime/ is kept byte-faithful to the
+# implementation it was taken from, so it is not restyled here.
+extend-exclude = ["src/open_fin_gym/realtime"]
+
+[tool.isort]
+extend_skip = ["src/open_fin_gym/realtime"]
