@@ -1,0 +1,31 @@
+{
+  "kind": "realtime_forecasting",
+  "config": {
+    "symbols": [
+      "SPY",
+      "QQQ",
+      "IWM"
+    ],
+    "target_symbols": [
+      "SPY",
+      "QQQ"
+    ],
+    "horizon_bars": 5,
+    "context_resolutions": [
+      {
+        "interval": "1m",
+        "bars": 60
+      },
+      {
+        "interval": "5m",
+        "bars": 24
+      },
+      {
+        "interval": "1h",
+        "bars": 24
+      }
+    ],
+    "data_resolution": "1m",
+    "headline_metric": "price_mape"
+  }
+}

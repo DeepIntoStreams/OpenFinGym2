@@ -22,20 +22,11 @@ for _ in range(60):
 
 obs = call("/reset", {})
 
-# Reference policy: take a position in the first symbol on the opening step,
-# hold it, and flatten on the last one.
-symbol = next(iter(obs["symbols"]))
-price = obs["symbols"][symbol]["price"]
-quantity = round(obs["portfolio"]["cash"] * 0.2 / price, 4)
-
+# Reference policy: a random walk forecast, i.e. predict the current price.
+targets = [s for s in obs if isinstance(obs[s], dict) and "price" in obs[s]]
 while True:
-    if obs["step"] == 0 and quantity > 0:
-        action = {"action": "buy", "symbol": symbol, "quantity": quantity}
-    elif obs["steps_remaining"] == 1 and obs["portfolio"]["positions"].get(symbol):
-        action = {"action": "sell", "symbol": symbol,
-                  "quantity": obs["portfolio"]["positions"][symbol]}
-    else:
-        action = {"action": "hold"}
+    symbol = targets[0]
+    action = {"symbol": symbol, "predicted_price": float(obs[symbol]["price"])}
     result = call("/step", action)
     if result["done"]:
         break

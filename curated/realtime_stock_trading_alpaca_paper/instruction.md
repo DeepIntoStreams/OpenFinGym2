@@ -1,8 +1,8 @@
-# Offline Stock Trading
+# Realtime Stock Trading via a Paper Brokerage
 
 ## Problem
 
-Sequential trading over replayed historical hourly bars for US equities. The broker holds the data and replays it one bar at a time, so no look-ahead is possible.
+Trading on live US equity market data, with orders dispatched to a broker paper-trading sandbox. Position state and realised profit come from the brokerage account rather than an in-process ledger.
 
 ## Protocol
 

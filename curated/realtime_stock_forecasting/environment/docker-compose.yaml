@@ -1,0 +1,21 @@
+services:
+  main:
+    image: localhost/openfingym-broker
+    depends_on:
+      - broker
+    environment:
+      BROKER_URL: http://broker:8000
+    command: sleep infinity
+
+  broker:
+    image: localhost/openfingym-broker
+    environment:
+      ALPACA_API_KEY: ${ALPACA_API_KEY}
+      ALPACA_SECRET_KEY: ${ALPACA_SECRET_KEY}
+      BROKER_CONFIG: /broker/episode.json
+    volumes:
+      - ./episode.json:/broker/episode.json:ro
+      - ledger:/ledger
+
+volumes:
+  ledger:

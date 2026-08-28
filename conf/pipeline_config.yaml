@@ -156,3 +156,56 @@ scopes:
         OR "trading simulator" OR "trading environment")
         AND ("agent" OR "reinforcement learning" OR "large language model" OR "LLM")
         AND ("backtest" OR "evaluation" OR "benchmark" OR "Sharpe" OR "PnL")'
+
+  - id: offline_trading
+    name: "Offline Trading Agents"
+    task_type: "trading"
+    description: >
+      Trading agents evaluated by replaying historical market data, including
+      reinforcement-learning policies, execution strategies, and rule-based
+      systems judged on the account a backtest produces.
+    enabled: false
+    categories: [ q-fin.TR, q-fin.CP, q-fin.PM, cs.LG, cs.AI, stat.ML ]
+    queries:
+      - 'all:("backtest" OR "backtesting" OR "out-of-sample" OR "walk-forward")
+        AND ("trading strategy" OR "trading agent" OR "algorithmic trading" OR "portfolio management")
+        AND ("Sharpe" OR "PnL" OR "profit and loss" OR "drawdown" OR "transaction cost" OR "turnover")'
+      - 'all:("reinforcement learning" OR "deep reinforcement learning" OR "imitation learning")
+        AND ("stock" OR "cryptocurrency" OR "futures" OR "foreign exchange")
+        AND ("trading" OR "portfolio")
+        AND ("historical data" OR "backtest" OR "simulation")'
+
+  - id: offline_forecasting
+    name: "Offline Financial Forecasting"
+    task_type: "trading"
+    description: >
+      Forecasting of prices, returns, or volatility evaluated on a held-out
+      historical sample, where the paper fixes an instrument universe, a bar
+      interval, and a forecast horizon.
+    enabled: false
+    categories: [ q-fin.ST, q-fin.CP, q-fin.TR, cs.LG, stat.ML ]
+    queries:
+      - 'all:("price forecasting" OR "return forecasting" OR "volatility forecasting"
+        OR "time series forecasting")
+        AND ("stock" OR "equity" OR "cryptocurrency" OR "index" OR "exchange rate")
+        AND ("RMSE" OR "MAPE" OR "MAE" OR "directional accuracy" OR "out-of-sample")'
+      - 'all:("multi-horizon" OR "multi-step" OR "one-step-ahead" OR "horizon")
+        AND ("financial time series" OR "asset price" OR "asset return")
+        AND ("train" OR "test split" OR "rolling window" OR "walk-forward")'
+
+  - id: realtime_forecasting
+    name: "Realtime Financial Forecasting"
+    task_type: "trading"
+    description: >
+      Forecasting evaluated against outcomes that do not yet exist when the
+      prediction is made, including streaming and online prediction of prices
+      or returns over a fixed horizon.
+    enabled: false
+    categories: [ q-fin.ST, q-fin.CP, q-fin.TR, cs.LG, cs.AI, stat.ML ]
+    queries:
+      - 'all:("online learning" OR "streaming" OR "real-time" OR "live")
+        AND ("forecasting" OR "prediction")
+        AND ("financial time series" OR "asset price" OR "market data" OR "order book")'
+      - 'all:("nowcasting" OR "intraday forecasting" OR "high-frequency forecasting")
+        AND ("stock" OR "cryptocurrency" OR "exchange rate" OR "index")
+        AND ("horizon" OR "latency" OR "tick" OR "minute")'

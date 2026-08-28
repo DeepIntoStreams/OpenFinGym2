@@ -1,8 +1,8 @@
-# Offline Stock Trading
+# Realtime Stock Trading
 
 ## Problem
 
-Sequential trading over replayed historical hourly bars for US equities. The broker holds the data and replays it one bar at a time, so no look-ahead is possible.
+Trading on live US equity market data. Orders are filled in-process against the current market snapshot with configured slippage; they never leave the container.
 
 ## Protocol
 

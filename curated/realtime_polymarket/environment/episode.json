@@ -1,0 +1,6 @@
+{
+  "kind": "realtime_polymarket",
+  "config": {
+    "headline_metric": "brier_score"
+  }
+}

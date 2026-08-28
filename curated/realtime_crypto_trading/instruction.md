@@ -1,8 +1,8 @@
-# Offline Stock Trading
+# Realtime Crypto Trading
 
 ## Problem
 
-Sequential trading over replayed historical hourly bars for US equities. The broker holds the data and replays it one bar at a time, so no look-ahead is possible.
+Trading on live crypto market data from Binance. Orders are filled in-process against the current market snapshot with configured slippage.
 
 ## Protocol
 
@@ -34,7 +34,7 @@ while True:
 ```python
 {
   "step": int, "steps_remaining": int,
-  "symbols": {"SPY": {"symbol", "price", "open", "high", "low", "close",
+  "symbols": {"BTCUSDT": {"symbol", "price", "open", "high", "low", "close",
                     "volume", "timestamp", "recent_bars": [...]}},
   "portfolio": {"cash", "reserved_cash", "positions", "pnl", "value",
                 "pending_orders"},
@@ -50,7 +50,7 @@ One order intent per step:
 
 ```python
 {"action": "buy" | "sell" | "hold" | "cancel",
- "symbol": "SPY", "quantity": 10,
+ "symbol": "BTCUSDT", "quantity": 10,
  "order_type": "market" | "limit" | "stop" | "stop_limit",
  "limit_price": float, "stop_price": float,
  "tif": "ioc" | "gtc", "order_id": str}

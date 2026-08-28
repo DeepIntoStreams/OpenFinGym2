@@ -1,0 +1,46 @@
+# Fields a paper may set on this bundle. Anything absent falls back to defaults.
+task_id  = "realtime_crypto_trading"
+scope_id = "realtime_trading"
+description = """\
+Trading on live crypto market data, filled in-process."""
+
+# This task runs against the live market, so the paper's sample period does
+# not carry over and no date fields are offered.
+[config_schema.symbols]
+type = "list[str]"
+notes = "Binance perpetual pair symbols such as BTCUSDT. Map a pair quoted against another currency onto its USDT equivalent."
+
+[config_schema.target_symbols]
+type = "list[str]"
+notes = "Subset of symbols the metrics score. The others may still be traded for hedging but do not count."
+
+[config_schema.data_resolution]
+type = "str"
+options = ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"]
+notes = "Bar cadence the episode steps at. Must be the finest interval in context_resolutions."
+
+[config_schema.context_resolutions]
+type = "list[{interval, bars}]"
+notes = "Observation history per interval, coarsest last."
+
+[config_schema.slippage_pct]
+type = "float"
+notes = "Per-trade slippage as a fraction of notional, e.g. 0.0005 for 5 basis points. Use the paper's assumption when it states one."
+
+[config_schema.transaction_cost_pct]
+type = "float"
+notes = "Per-trade commission as a fraction of notional."
+
+[config_schema.max_steps]
+type = "int"
+notes = "Steps per episode. An episode cannot outlive one trading session."
+
+[defaults]
+symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+target_symbols = ["BTCUSDT", "ETHUSDT"]
+slippage_pct = 0.001
+transaction_cost_pct = 0.0
+max_steps = 10
+context_resolutions = [{ interval = "1m", bars = 60 }, { interval = "5m", bars = 24 }, { interval = "1h", bars = 24 }]
+data_resolution = "1m"
+execution_mode = "internal_paper"
