@@ -121,9 +121,10 @@ data path is live.
 **Harbor end-to-end**, with `verifier_result` produced and no exception:
 compose brought up both services, `[environment.env]` injected the Alpaca
 credentials, the oracle agent ran `solution/solve.sh`, real orders filled, and
-the verifier wrote `reward.json` in `shared` mode. **Important caveat: this ran
-against an earlier hand-written broker that has since been deleted. It has not
-been repeated against the ported stack.**
+the verifier wrote `reward.json` in `shared` mode. Repeated successfully against
+the ported stack and the `openfingym-broker` image, with `verifier_result`
+present and no exception: `pnl -0.2118`, `win_rate 0.2`, `num_trades 5`, matching
+what the same episode produces when the broker is driven directly.
 
 **Pipeline through routing**: 4 papers scraped → 1 accepted → 1 routed → bundle
 exported, with the critic and generator correctly seeing zero candidates.
@@ -133,22 +134,26 @@ bundle and for mainline generated tasks.
 
 ### Not done
 
-- `realtime_forecasting`, `offline_trading`, `offline_forecasting` — the classes
-  import but **no episode has ever been run**. The offline pair additionally needs
-  its replay data packaged; `offline_stock_forecasting.py` is 516 lines and
-  contains data-construction logic that has not been read closely yet.
-- Crypto variants of all four families — not ported (batch 2). They differ only
-  in the provider, so the structure should carry over.
-- Polymarket — not ported.
-- `BinanceProvider` — ported but never exercised.
-- `alpaca_paper` execution mode — ported but never exercised; only
-  `internal_paper` has run.
-- Sustained WebSocket operation — only the warmup path was observed.
-- **The bundle under `curated/realtime_stock_trading/` is stale.** It predates the
-  port: its `broker.Dockerfile` installs only fastapi/uvicorn/requests and copies
-  a `realtime/` tree that now needs torch and scikit-learn. It must be rewritten
-  to use the `openfingym-broker` image before it will build.
-- Harbor has never been run against the ported stack or the new image.
+- `realtime_stock_trading_alpaca_paper` — the only task never run. It dispatches
+  real orders to the Alpaca paper account, so it needs a decision on
+  `flatten_on_start` first: the bundle currently sets `true`, which clears
+  residual positions and open orders at construction, while the original default
+  is to hard-fail on a dirty account without touching it.
+- Sustained WebSocket operation — only the warmup path has been observed.
+- The routing LLM has produced one configuration and chose every default, so a
+  paper changing the output is still unproven.
+- Harbor coverage is six of ten bundles: `offline_stock_trading`,
+  `offline_crypto_trading`, `offline_stock_forecasting`,
+  `offline_crypto_forecasting`, `realtime_crypto_trading` and
+  `realtime_polymarket` all produced a `verifier_result` with no exception.
+  `realtime_crypto_forecasting` reaches artifact collection and then trips the
+  podman `cp` limitation below; the task itself runs correctly when driven
+  directly. The three remaining bundles need the US equity session.
+- The batch-forecasting reference solutions score poorly (`mape` around 1.0)
+  because they predict the last feature column, which is a derived momentum
+  value rather than a price. The task predicts an absolute close and exposes
+  only derived features, and the agent image carries no numpy, so a sensible
+  baseline is the mean of the training targets. Not yet changed.
 - The routing LLM has produced only one configuration, and it chose every default
   value, so it is still unproven that a paper actually changes the output. Testing
   it against a paper with a clearly different market setup is the obvious next
