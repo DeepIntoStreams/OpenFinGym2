@@ -53,6 +53,3 @@ mlflow = "mlflow server --host 127.0.0.1 --port 8080 --backend-store-uri sqlite:
 
 [tool.pytest.ini_options]
 python_classes = ["PytestCollect*"]
-
-[tool.isort]
-extend_skip = ["src/open_fin_gym/realtime"]

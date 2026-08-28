@@ -27,6 +27,9 @@ import torch
 from open_fin_gym.realtime.contracts import ForecastingTask, TaskMetadata
 from open_fin_gym.realtime.data_providers.base import MarketSnapshot
 from open_fin_gym.realtime.data_providers.binance import BinanceProvider
+from open_fin_gym.realtime.tasks.base_realtime_task import (
+    _validate_target_symbols,
+)
 from open_fin_gym.realtime.features import sanitize_engineered_features
 from open_fin_gym.realtime.rewards.reward_bank import (
     DirectionalAccuracy,
@@ -36,9 +39,6 @@ from open_fin_gym.realtime.rewards.reward_bank import (
     PearsonCorrelation,
     R2Score,
     RMSELoss,
-)
-from open_fin_gym.realtime.tasks.base_realtime_task import (
-    _validate_target_symbols,
 )
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]

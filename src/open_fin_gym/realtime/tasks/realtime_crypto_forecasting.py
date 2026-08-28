@@ -24,9 +24,7 @@ from typing import Any, Dict, Optional
 from open_fin_gym.realtime.contracts import TaskMetadata
 from open_fin_gym.realtime.data_providers.binance import BinanceProvider
 from open_fin_gym.realtime.ledger import PredictionLedger
-from open_fin_gym.realtime.tasks.base_realtime_task import (
-    RealtimeForecastingTask,
-)
+from open_fin_gym.realtime.tasks.base_realtime_task import RealtimeForecastingTask
 
 _RESULTS_DIR = Path(__file__).resolve().parents[3] / "results"
 _DEFAULT_DB = _RESULTS_DIR / "predictions.db"
