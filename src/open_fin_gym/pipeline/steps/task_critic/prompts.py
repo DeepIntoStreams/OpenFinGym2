@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from open_fin_gym.pipeline.config import Scope, scope_context
 from open_fin_gym.pipeline.db.tables import JudgeLabel
@@ -54,7 +54,10 @@ Checks to make:
    not itself disqualifying if the same series is a standard public-market
    quantity (prices, returns, volumes, OHLCV, standard macro indicators) —
    only flag it if the specific instrument, period, or frequency is vague or
-   unspecified. Flag genuinely proprietary content (hand-curated labels,
+   unspecified. This vendor carve-out does NOT apply to platforms that gate
+   the dataset itself behind an account or API key (e.g. Kaggle) — set
+   requires_authentication=True for those regardless of how well-known the
+   benchmark is. Flag genuinely proprietary content (hand-curated labels,
    broker-internal order flow, full-depth order-book data) as an issue.
 
 If evidence is weak, ambiguous, or incomplete, reject by default.
@@ -73,7 +76,28 @@ class TaskCritique(BaseModel):
     consistency_assessment: str
     completeness_assessment: str
     data_availability_assessment: str
+    requires_authentication: bool = Field(
+        description=(
+            "True if retrieving the dataset requires an account, login, API "
+            "key, or acceptance of terms (e.g. Kaggle, most non-API academic "
+            "portals). False if it's retrievable by an anonymous, scripted "
+            "request with no credentials — a named pricing vendor like "
+            "Bloomberg does NOT count as requiring authentication if the "
+            "same standard market-data series is available elsewhere with "
+            "no login."
+        )
+    )
     issues: str
     label: JudgeLabel
     score: float = Field(0.0, ge=0.0, le=10.0)
     confidence: float = Field(0.0, ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def _authentication_gates_label(self) -> "TaskCritique":
+        if self.requires_authentication and self.label == JudgeLabel.ACCEPTED:
+            self.label = JudgeLabel.REJECTED
+            self.issues = (
+                f"{self.issues}\n\n"
+                "Overridden to be rejected: requires_authentication is True"
+            )
+        return self

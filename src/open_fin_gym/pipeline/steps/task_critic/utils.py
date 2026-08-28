@@ -52,7 +52,9 @@ def structural_issues(spec: TaskSpecification) -> list[str]:
     if duplicates:
         issues.append(f"duplicate dataset filenames across roles: {sorted(duplicates)}")
 
-    known_filenames = {d.filename for d in spec.test_outputs + spec.test_targets}
+    known_filenames = {
+        d.filename for d in spec.test_outputs + spec.test_targets + spec.test_inputs
+    }
     for metric in spec.metrics:
         missing = [x for x in metric.input_datasets if x not in known_filenames]
         if missing:
