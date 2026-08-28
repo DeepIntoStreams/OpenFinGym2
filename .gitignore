@@ -127,6 +127,7 @@ pyrightconfig.json
 pipeline.db
 # MlFlow
 mlruns.db
+mlartifacts/
 # Default generated tasks
 /tasks
 # Generated docs
