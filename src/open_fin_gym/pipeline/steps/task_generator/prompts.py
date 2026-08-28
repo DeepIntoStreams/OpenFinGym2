@@ -1,31 +1,11 @@
 from pydantic import BaseModel
 
-from open_fin_gym.pipeline.db.tables import TaskType
 from open_fin_gym.pipeline.steps.task_extraction.prompts import (
     AssessmentMetric,
     Dataset,
 )
 from open_fin_gym.pipeline.steps.task_extraction.utils import TaskSpecification
-
-# Whether row i of the user output corresponds to row i of the test target, which
-# decides whether the verifier can compare them row by row
-ROW_CORRESPONDENCE_BY_TASK_TYPE = {
-    TaskType.FORECASTING: (
-        "Each row of the user output matches the same row of the test target."
-    ),
-    TaskType.GENERATION: (
-        "The user samples their output, so compare the two datasets as "
-        "distributions and do not assume the rows are paired."
-    ),
-}
-
-# Prompts are built before the generator's error handling, so an unhandled task type
-# would abort a run that has already spent LLM calls. Fail on import instead.
-if set(ROW_CORRESPONDENCE_BY_TASK_TYPE) != set(TaskType):
-    raise ValueError(
-        f"No row correspondence defined for task type(s) "
-        f"{sorted(set(TaskType) - set(ROW_CORRESPONDENCE_BY_TASK_TYPE))}"
-    )
+from open_fin_gym.pipeline.task_types import TaskTypeParams
 
 
 class DatasetRetrieval(BaseModel):
@@ -82,11 +62,13 @@ Test target datasets:
 """
 
 
-def build_metric_prompt(task_spec: TaskSpecification) -> str:
+def build_metric_prompt(
+    task_spec: TaskSpecification, task_params: TaskTypeParams
+) -> str:
     test_outputs = join_specs(task_spec.test_outputs)
     test_targets = join_specs(task_spec.test_targets)
     metrics = join_specs(task_spec.metrics)
-    row_correspondence = ROW_CORRESPONDENCE_BY_TASK_TYPE[task_spec.task_type]
+    row_correspondence = task_params.row_correspondence
     return f"""
 You are given the specification of a machine learning task. You should write
 a Python script that assess the test_output produced by the user against the

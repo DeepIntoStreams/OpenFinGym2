@@ -89,7 +89,7 @@ class TaskGenerator:
 
         for task_spec in task_specs:
             dataset_prompt = build_dataset_download_prompt(task_spec)
-            metric_prompt = build_metric_prompt(task_spec)
+            metric_prompt = build_metric_prompt(task_spec, scope.task_params)
             description_prompt = build_description_summary_prompt(
                 task_spec.task_description
             )
