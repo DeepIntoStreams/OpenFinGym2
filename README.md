@@ -15,7 +15,7 @@ uv run task pipeline
 If using MlFlow for LLM tracking you should run a client with
 
 ```commandline
-uv run mlflow server --host 127.0.0.1 --port 8080 --backend-store-uri sqlite:///./mlruns.db
+uv run task mlflow
 ```
 
 ## Developers

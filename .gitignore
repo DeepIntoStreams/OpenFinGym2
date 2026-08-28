@@ -125,6 +125,10 @@ pyrightconfig.json
 /outputs
 # Default pipeline sqlite DB file
 pipeline.db
+# MlFlow
 mlruns.db
 mlartifacts/
+# Default generated tasks
 /tasks
+# Generated docs
+/docs/build/

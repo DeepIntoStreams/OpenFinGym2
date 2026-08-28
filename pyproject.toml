@@ -37,14 +37,19 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "piccolo-theme>=0.24.0",
     "harbor>=0.20.0",
     "pre-commit>=4.6.0",
     "pytest>=9.0.3",
     "ruff>=0.15.15",
+    "sphinx>=9.1.0",
+    "sphinx-autoapi>=3.8.0",
 ]
 
 [tool.taskipy.tasks]
 pipeline = "python -m open_fin_gym.pipeline"
+docs = { cmd = "sphinx-build -W -b html docs/source docs/build", help="Build docs"}
+mlflow = "mlflow server --host 127.0.0.1 --port 8080 --backend-store-uri sqlite:///./mlruns.db"
 
 [tool.pytest.ini_options]
 python_classes = ["PytestCollect*"]
