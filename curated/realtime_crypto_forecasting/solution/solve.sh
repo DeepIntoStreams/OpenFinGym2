@@ -25,8 +25,9 @@ else:
 obs = call("/reset", {})
 
 # Reference policy: a random walk forecast, i.e. predict the current price.
+# The task never reports done, so the agent decides when to stop.
 targets = [s for s in obs if isinstance(obs[s], dict) and "price" in obs[s]]
-while True:
+for _ in range(10):
     symbol = targets[0]
     action = {"symbol": symbol, "predicted_price": float(obs[symbol]["price"])}
     result = call("/step", action)

@@ -28,12 +28,13 @@ else:
 
 ```python
 obs = requests.post(f"{broker}/reset", json={}).json()
-while True:
+for _ in range(10):
     result = requests.post(f"{broker}/step", json=predict(obs)).json()
-    if result["done"]:
-        break
     obs = result["observation"]
 ```
+
+The task does not end on its own, so decide how many predictions to submit and
+stop there. Each one is independent and is scored when its horizon elapses.
 
 ## Observation
 
