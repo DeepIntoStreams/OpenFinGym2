@@ -19,12 +19,14 @@ The broker is reachable at `$BROKER_URL` (`http://broker:8000`).
 import os, time, requests
 
 broker = os.environ["BROKER_URL"]
-for _ in range(60):
+for _ in range(150):
     try:
         requests.get(f"{broker}/healthz", timeout=2).raise_for_status()
         break
     except requests.RequestException:
         time.sleep(2)
+else:
+    raise SystemExit("broker never became reachable")
 
 universe = requests.post(f"{broker}/reset", json={}).json()
 predictions = [

@@ -14,11 +14,13 @@ def call(path, body=None):
     )
     return json.load(urllib.request.urlopen(req, timeout=900))
 
-for _ in range(60):
+for _ in range(150):
     try:
         call("/healthz"); break
     except Exception:
         time.sleep(2)
+else:
+    raise SystemExit("broker never became reachable")
 
 data = call("/features")
 
