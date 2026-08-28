@@ -1,20 +1,19 @@
-"""Curated task: Offline Stock Forecasting (Alpaca hourly OHLCV).
+"""Curated task: Offline Crypto Forecasting (Binance hourly OHLCV).
 
-Multi-symbol batch forecasting on Alpaca historical bars. Data is
-fetched on first use via ``AlpacaProvider.get_bars()`` and cached as
-CSV under ``data/pipeline_output/datasets/alpaca_stock_hourly_ohlcv/``.
-Subsequent runs load directly from the cache without touching the
-network.
-
-Requires Alpaca API keys (free IEX tier is sufficient). Set the
-``ALPACA_API_KEY`` and ``ALPACA_SECRET_KEY`` environment variables
-before the first fetch; cached runs work offline.
+Multi-symbol batch forecasting on Binance hourly bars. Data is fetched
+on first use via ``BinanceProvider.get_bars()`` and cached as CSV under
+``data/pipeline_output/datasets/binance_crypto_hourly_ohlcv/``. Subsequent
+runs load directly from the cache without touching the network.
 
 Interaction pattern (``batch_mode=True``)::
 
     features    = task.get_features()                   # {sym: (n_test, 10)}
     predictions = agent.act(features)                   # {sym: (n_test,)}
     rewards     = task.predict_and_evaluate(predictions) # per-symbol + aggregate
+
+For the default single-symbol config the dict has one key. Multi-symbol
+config (``{"symbols": ["BTCUSDT", "ETHUSDT"]}``) yields one entry per
+symbol with the same feature schema.
 """
 
 from datetime import datetime, timezone
@@ -26,8 +25,11 @@ import pandas as pd
 import torch
 
 from open_fin_gym.realtime.contracts import ForecastingTask, TaskMetadata
-from open_fin_gym.realtime.data_providers.alpaca import AlpacaProvider
 from open_fin_gym.realtime.data_providers.base import MarketSnapshot
+from open_fin_gym.realtime.data_providers.binance import BinanceProvider
+from open_fin_gym.realtime.tasks.base_realtime_task import (
+    _validate_target_symbols,
+)
 from open_fin_gym.realtime.features import sanitize_engineered_features
 from open_fin_gym.realtime.rewards.reward_bank import (
     DirectionalAccuracy,
@@ -38,21 +40,20 @@ from open_fin_gym.realtime.rewards.reward_bank import (
     R2Score,
     RMSELoss,
 )
-from open_fin_gym.realtime.tasks.base_realtime_task import (
-    _validate_target_symbols,
-)
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_CACHE_DIR = _REPO_ROOT / "data" / "pipeline_output" / "datasets" / "alpaca_stock_hourly_ohlcv"
+_CACHE_DIR = _REPO_ROOT / "data" / "pipeline_output" / "datasets" / "binance_crypto_hourly_ohlcv"
 
 _ROLLING_WINDOWS = [5, 20]
-# Largest backward dependency across features (rolling_mean_20h /
-# rolling_std_20h / momentum_20h). Sizes the expected head-NaN envelope.
+# Largest backward dependency across features: rolling_mean_20h /
+# rolling_std_20h /momentum_20h all need 20 prior bars. Used to size
+# the expected head-NaN envelope when sanitizing engineered features.
 _MOMENTUM_SHIFT = 20
 
-#: Per-symbol metric panel, computed via the gt-at-init :class:`Loss`
-#: classes — same source of truth as the crypto variant and the auto-
-#: pipeline assembled evaluator.
+#: Per-symbol metrics computed on the full (predicted_price, target_price)
+#: series via the gt-at-init :class:`Loss` classes. The torch dispatch
+#: keeps a single source of truth shared with the auto-pipeline assembled
+#: evaluator — no re-implementation of MSE/MAE/MAPE in numpy here.
 _PANEL_LOSS_CLASSES: tuple[tuple[str, type], ...] = (
     ("mse", MSELoss),
     ("rmse", RMSELoss),
@@ -63,12 +64,15 @@ _PANEL_LOSS_CLASSES: tuple[tuple[str, type], ...] = (
 )
 
 #: Macro-aggregated keys (mean across :attr:`_target_symbols`). Only
-#: scale-free metrics are macro-averaged because cross-symbol price
-#: scales differ.
+#: scale-free metrics are macro-averaged because cross-symbol prices
+#: live on incompatible scales (BTCUSDT ≈ 60k, SPY ≈ 500); a raw-MSE
+#: macro-mean would just track whichever symbol had the wider range.
 _AGG_KEYS: tuple[str, ...] = ("mape", "r2", "pearson", "directional_accuracy")
 
 #: Allowed values for ``headline_metric`` in
-#: :class:`OfflineStockForecasting`. Must be a macro key.
+#: :class:`OfflineCryptoForecasting`. The headline must be a macro key
+#: so cross-symbol comparability holds; per-symbol headlines (e.g.
+#: ``mape_BTCUSDT``) are exposed in the score dict but not eligible.
 _VALID_OFFLINE_HEADLINE: tuple[str, ...] = _AGG_KEYS
 
 FEATURE_NAMES: list[str] = [
@@ -86,6 +90,7 @@ FEATURE_NAMES: list[str] = [
 
 
 def _parse_iso_date(value: str) -> datetime:
+    """Parse ``YYYY-MM-DD`` (or full ISO timestamp) into a UTC datetime."""
     if "T" in value:
         dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
     else:
@@ -96,12 +101,15 @@ def _parse_iso_date(value: str) -> datetime:
 
 
 def _parse_optional_split_date(value: Any) -> Optional[pd.Timestamp]:
-    """Parse a user-supplied ``split_date`` config value (UTC).
+    """Parse a user-supplied ``split_date`` config value.
 
-    Symmetric with the crypto-side helper — see
-    :func:`tasks.offline_crypto_forecasting.task._parse_optional_split_date`
-    for the contract. Kept in lock-step so a future shared base class
-    is a refactor and not a behavior change.
+    Accepts ``None``, ISO date strings, ISO datetime strings, or a
+    pre-built :class:`pd.Timestamp` / :class:`datetime`. Naive inputs
+    are localized to UTC (we keep all time-axis comparisons in UTC to
+    match the upstream provider's timestamp encoding). Anything else
+    raises :class:`ValueError` with a clear message — silently
+    accepting a malformed split would put the cutoff in an unexpected
+    place and the failure would only surface as wrong-sized test sets.
     """
     if value is None:
         return None
@@ -119,6 +127,7 @@ def _parse_optional_split_date(value: Any) -> Optional[pd.Timestamp]:
 
 
 def _bars_to_df(bars: List[MarketSnapshot]) -> pd.DataFrame:
+    """Convert ``list[MarketSnapshot]`` to a normalised OHLCV DataFrame."""
     rows = []
     for b in bars:
         rows.append(
@@ -134,8 +143,11 @@ def _bars_to_df(bars: List[MarketSnapshot]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-class OfflineStockForecasting(ForecastingTask):
-    """Predict an absolute future close price from OHLCV-derived features (Alpaca).
+class OfflineCryptoForecasting(ForecastingTask):
+    """Predict an absolute future close price from OHLCV-derived features.
+
+    Data source: Binance public klines, fetched on demand via
+    :class:`BinanceProvider` and cached as CSV.
 
     Features (10-dimensional, per symbol)::
 
@@ -144,41 +156,47 @@ class OfflineStockForecasting(ForecastingTask):
         high_low_range, close_open_range, momentum_20h
 
     Ground truth: absolute close price ``forecast_horizon_bars`` ahead.
-    See :class:`OfflineCryptoForecasting` for the rationale behind the
-    price-prediction framing (the crypto and stock variants are kept in
-    parallel so they can use independent providers / caches but share
-    the same agent contract and metric panel).
+    Direction is derived at scoring time from
+    ``sign(predicted_price - reference_price)``, where
+    ``reference_price`` is the current bar's close (exposed alongside
+    the test set).
 
-    Metric panel: ``mse``, ``rmse``, ``mae``, ``mape``, ``r2``,
-    ``pearson``, ``directional_accuracy`` (per symbol + macro mean
-    over scale-free keys). Headline configurable; default ``mape``.
+    Metric panel: ``mse, rmse, mae, mape, r2, pearson,
+    directional_accuracy`` per symbol, plus macro-mean over
+    ``target_symbols``. Headline configurable via ``headline_metric``
+    (default ``mape``).
+
+    Config (all optional):
+
+    - ``symbols`` (default ``["BTCUSDT"]``), ``interval`` (default ``"1h"``),
+      ``start`` (default ``"2020-01-01"``), ``end`` (default ``"2023-01-01"``).
+    - ``train_ratio``: training fraction *of the latest-starting
+      symbol's cleaned range* (default ``0.8``). Used only when
+      ``split_date`` is unset; see :meth:`_resolve_cutoff`.
+    - ``split_date``: optional explicit ISO timestamp (UTC if naive)
+      used as the inclusive last-train-bar boundary across every
+      symbol. When set, ``train_ratio`` is ignored. Useful for pinning
+      a stable test window across config changes.
+    - ``forecast_horizon_bars``: bars-ahead target (default ``1``).
+    - ``headline_metric``: one of ``mape``, ``r2``, ``pearson``,
+      ``directional_accuracy`` (default ``mape``). Drives the
+      ``reward`` key in the score dict.
+    - ``target_symbols``: subset whose per-symbol metrics feed the
+      macro aggregate (default = all). Per-symbol scores are still
+      emitted for every input symbol — this only scopes the
+      cross-symbol aggregate.
 
     Train/test split: a *single* cutoff timestamp is shared across all
-    symbols, so the test window is calendar-aligned across staggered
-    listing dates. See :meth:`OfflineCryptoForecasting._resolve_cutoff`
-    for the rationale — the implementation is parallel.
+    symbols, so the test window is calendar-aligned regardless of
+    listing-date staggering (e.g. SOLUSDT's 2020-08 listing vs.
+    BTCUSDT's much earlier history). See :meth:`_resolve_cutoff`.
 
-    Args:
-        config: Recognised keys (all optional, with defaults):
-
-            - ``"symbols"``:    list of tickers (default ``["SPY"]``)
-            - ``"interval"``:   bar interval (default ``"1h"``)
-            - ``"start"``:      ISO date inclusive (default ``"2020-01-01"``)
-            - ``"end"``:        ISO date exclusive (default ``"2023-01-01"``)
-            - ``"train_ratio"``: training fraction *of the latest-starting
-              symbol's cleaned range* (default ``0.8``). Used only when
-              ``split_date`` is unset.
-            - ``"split_date"``: optional explicit UTC ISO timestamp used as
-              the inclusive last-train-bar boundary across every symbol.
-              When set, ``train_ratio`` is ignored.
-            - ``"forecast_horizon_bars"``: positive int ≥ 1 (default ``1``).
-            - ``"headline_metric"``: macro key — one of ``mape``, ``r2``,
-              ``pearson``, ``directional_accuracy`` (default ``mape``).
-            - ``"target_symbols"``: subset of ``symbols`` feeding the
-              macro aggregate (default ``symbols``). Per-symbol scores
-              are emitted for every input symbol regardless.
-        provider: Override the default :class:`AlpacaProvider` (useful for tests).
+    ``provider``: override the default :class:`BinanceProvider`.
     """
+
+    # batch_mode = True is the default -- the batch forecasting path
+    # bypasses the gym loop in favour of a single act() call on the full
+    # feature set; see ForecastingTask.predict_and_evaluate.
 
     def __init__(
         self,
@@ -187,9 +205,9 @@ class OfflineStockForecasting(ForecastingTask):
         provider: Optional[Any] = None,
     ) -> None:
         super().__init__(config)
-        self._symbols: List[str] = list(self.config.get("symbols", ["SPY"]))
+        self._symbols: List[str] = list(self.config.get("symbols", ["BTCUSDT"]))
         if not self._symbols:
-            raise ValueError("OfflineStockForecasting requires at least one symbol")
+            raise ValueError("OfflineCryptoForecasting requires at least one symbol")
         self._interval: str = str(self.config.get("interval", "1h"))
         self._start: str = str(self.config.get("start", "2020-01-01"))
         self._end: str = str(self.config.get("end", "2023-01-01"))
@@ -222,19 +240,19 @@ class OfflineStockForecasting(ForecastingTask):
     def metadata(self) -> TaskMetadata:
         sym_label = "_".join(s.lower() for s in self._symbols)
         return TaskMetadata(
-            task_id=f"offline_stock_forecasting_{sym_label}",
-            title=f"Offline Stock Forecasting ({', '.join(self._symbols)}, {self._interval})",
+            task_id=f"offline_crypto_forecasting_{sym_label}",
+            title=f"Offline Crypto Forecasting ({', '.join(self._symbols)}, {self._interval})",
             description=(
                 f"Predict the absolute close price "
                 f"{self._forecast_horizon_bars} bar(s) ahead for "
                 f"{', '.join(self._symbols)} from 10 OHLCV-derived "
-                f"features. Alpaca {self._interval} bars from "
+                f"features. Binance {self._interval} bars from "
                 f"{self._start} to {self._end}. Headline metric: "
                 f"{self._headline_metric}."
             ),
             interaction_model="forecasting",
-            data_requirements=[f"Alpaca {sym} {self._interval} OHLCV" for sym in self._symbols],
-            tags=["stock", "forecasting", self._interval],
+            data_requirements=[f"Binance {sym} {self._interval} OHLCV" for sym in self._symbols],
+            tags=["crypto", "forecasting", self._interval],
             difficulty="medium",
             version="2.0.0",
         )
@@ -246,10 +264,11 @@ class OfflineStockForecasting(ForecastingTask):
 
     def _ensure_provider(self) -> Any:
         if self._provider is None:
-            self._provider = AlpacaProvider()
+            self._provider = BinanceProvider()
         return self._provider
 
     def _load_symbol_ohlcv(self, symbol: str) -> pd.DataFrame:
+        """Load raw OHLCV for ``symbol``: from cache if present, else fetch + cache."""
         csv_path = self._cache_path(symbol)
         if csv_path.exists():
             return pd.read_csv(csv_path)
@@ -273,14 +292,27 @@ class OfflineStockForecasting(ForecastingTask):
         forecast_horizon_bars: int = 1,
         symbol: Optional[str] = None,
     ) -> pd.DataFrame:
-        """Compute features + price target + reference (current close).
+        """Compute features + price-prediction target + reference price.
 
-        See :meth:`OfflineCryptoForecasting._engineer_features` for the
-        full rationale; this is the parallel implementation for stock
-        bars and stays in lock-step, including the
-        :func:`sanitize_engineered_features` pass that converts
-        ``inf → NaN`` and warns on each anomalous row with the upstream
-        raw bar context.
+        Targets and references emitted per row:
+
+        * ``target`` — ``close[t + forecast_horizon_bars]``: the agent's
+          prediction objective (absolute future price).
+        * ``reference`` — ``close[t]``: the current bar's close, used at
+          scoring time to derive direction via
+          ``sign(predicted_price - reference)``. Exposed in the agent-
+          facing ``dataset.h5`` so agents can also recover relative
+          changes if useful.
+
+        Exchange-gap bars (volume == 0, OHLC frozen) propagate ``+inf``
+        into ``volume_change`` on the *following* row. ``dropna()``
+        alone doesn't catch ``inf`` — sklearn estimators then refuse
+        the feature matrix, the agent's ``train.py`` crashes, and the
+        verifier short-circuits to ``reward = 0`` with no metric panel.
+        :func:`sanitize_engineered_features` converts ``inf → NaN``
+        before the final ``dropna`` and logs a warning per anomalous
+        row with the upstream raw bar so the data issue is visible
+        host-side.
         """
         df = raw.copy()
         df["return_1h"] = df["close"].pct_change()
@@ -308,7 +340,9 @@ class OfflineStockForecasting(ForecastingTask):
     def load_data(self) -> Any:
         if self._data is not None:
             return self._data
-        # See OfflineCryptoForecasting.load_data — parallel implementation.
+        # First pass: feature-engineer each symbol, collect cleaned df +
+        # its parsed UTC timestamps. Splitting is deferred so we can
+        # apply one shared cutoff across all symbols.
         per_symbol_df: Dict[str, pd.DataFrame] = {}
         per_symbol_ts: Dict[str, pd.Series] = {}
         for symbol in self._symbols:
@@ -331,7 +365,8 @@ class OfflineStockForecasting(ForecastingTask):
                     f"split cutoff {cutoff.isoformat()} falls before the "
                     f"first cleaned bar of {symbol} "
                     f"({ts.iloc[0].isoformat()}); the symbol would have an "
-                    f"empty training set."
+                    f"empty training set. Adjust split_date / train_ratio "
+                    f"or drop {symbol} from symbols."
                 )
             if split >= n_total:
                 raise ValueError(
@@ -360,7 +395,21 @@ class OfflineStockForecasting(ForecastingTask):
     def _resolve_cutoff(
         self, per_symbol_ts: Dict[str, pd.Series]
     ) -> pd.Timestamp:
-        """See :meth:`OfflineCryptoForecasting._resolve_cutoff`."""
+        """Decide the inclusive last-train-bar timestamp shared by every symbol.
+
+        Two modes:
+
+        * **Explicit (``split_date`` set)** — use it verbatim. Train rows
+          have ``timestamp <= split_date``; everything later is test.
+        * **Auto-derived** — pivot on the symbol with the *latest* first
+          cleaned bar (i.e. the most-constrained range), apply
+          ``train_ratio`` to that symbol's row count, and read off the
+          last-train timestamp. Pivot choice means the cutoff is
+          invariant to adding more *long-history* symbols (BTC/ETH style)
+          and only moves when an even-later-listed symbol enters
+          ``symbols`` — which is the correct behavior because that's
+          exactly when the held-out window would otherwise drift.
+        """
         if self._split_date is not None:
             return self._split_date
         pivot = max(
@@ -400,7 +449,12 @@ class OfflineStockForecasting(ForecastingTask):
         return {sym: self._data[sym]["y_train"] for sym in self._symbols}
 
     def get_reference_train(self) -> Dict[str, np.ndarray]:
-        """Per-symbol current-bar close prices for the training split."""
+        """Per-symbol current-bar close prices for the training split.
+
+        Bundled into ``dataset.h5`` so the agent can compute relative
+        changes / sanity-check directional signals against absolute
+        price predictions.
+        """
         self.load_data()
         return {sym: self._data[sym]["reference_train"] for sym in self._symbols}
 
@@ -408,17 +462,20 @@ class OfflineStockForecasting(ForecastingTask):
         """Per-symbol current-bar close prices for the held-out split.
 
         Used at scoring time to derive directional accuracy from
-        absolute price predictions.
+        absolute price predictions:
+        ``sign(predicted_price[i] - reference_test[i])``.
         """
         self.load_data()
         return {sym: self._data[sym]["reference_test"] for sym in self._symbols}
 
     @property
     def forecast_horizon_bars(self) -> int:
+        """Forecast horizon in bars (read-only, set at construction)."""
         return self._forecast_horizon_bars
 
     @property
     def headline_metric(self) -> str:
+        """Configured headline metric (read-only, set at construction)."""
         return self._headline_metric
 
     def get_observation_space(self) -> Dict[str, Any]:
@@ -460,16 +517,30 @@ class OfflineStockForecasting(ForecastingTask):
     ) -> Dict[str, float]:
         """Score price predictions through the gt-at-init Loss panel.
 
-        Mirrors :meth:`OfflineCryptoForecasting._score_dict`. See that
-        docstring for the per-symbol vs macro split rationale.
+        Per-symbol metrics: ``mse``, ``rmse``, ``mae``, ``mape``,
+        ``r2``, ``pearson`` (computed via the existing torch
+        :class:`Loss` classes — single source of truth shared with the
+        auto-pipeline assembled evaluator) plus ``directional_accuracy``
+        (derived from sign of price minus reference). Macro keys
+        (``mape``, ``r2``, ``pearson``, ``directional_accuracy``) are
+        the unweighted means across :attr:`_target_symbols`. The
+        ``reward`` key is whichever macro the task was configured for
+        via ``headline_metric``.
         """
         self.load_data()
         out: Dict[str, float] = {}
+        target_set = set(self._target_symbols)
         for sym, gt_raw in ground_truth.items():
             pred_raw = predictions.get(sym)
             gt_arr = np.asarray(gt_raw).astype(float).flatten()
             n_gt = len(gt_arr)
             if pred_raw is None or n_gt == 0:
+                # Empty predictions or empty ground truth: emit zeros so
+                # downstream callers get a stable key set, rather than
+                # crashing on a missing key. A zero MAPE is a misleading
+                # "perfect score" but the dry-run probe in on_startup
+                # explicitly invokes this path with zeros, so the
+                # behaviour is internally consistent.
                 for name, _ in _PANEL_LOSS_CLASSES:
                     out[f"{name}_{sym}"] = 0.0
                 out[f"directional_accuracy_{sym}"] = 0.0
@@ -481,7 +552,14 @@ class OfflineStockForecasting(ForecastingTask):
             pred_t = torch.from_numpy(pred_arr.astype(np.float32))
             gt_t = torch.from_numpy(gt_arr.astype(np.float32))
             for name, cls in _PANEL_LOSS_CLASSES:
+                # gt-at-init pattern (RULE A): construct per-call with
+                # the symbol's gt window, then forward(pred). Lightweight
+                # — just stores a tensor reference.
                 out[f"{name}_{sym}"] = float(cls(gt=gt_t).forward(pred_t))
+            # Directional accuracy via signed (price - reference) diff.
+            # Reference is the current-bar close at row t; without it,
+            # `sign(predicted_price)` would always be positive for
+            # absolute prices and the metric collapses.
             ref_full = np.asarray(
                 self._data[sym]["reference_test"]
             ).astype(float).flatten()
@@ -490,12 +568,20 @@ class OfflineStockForecasting(ForecastingTask):
             out[f"directional_accuracy_{sym}"] = float(
                 DirectionalAccuracy(gt=(gt_t - ref_t)).forward(pred_t - ref_t)
             )
+        # Macro-aggregate scale-free metrics over target_symbols only.
+        # Per-symbol absolute MSE/MAE/RMSE are emitted but NOT macro-
+        # averaged because cross-symbol price scales differ (BTCUSDT ~
+        # 60k vs SPY ~ 500); the macro mean would just track the widest-
+        # range symbol.
         for name in _AGG_KEYS:
             vals = [
                 out[f"{name}_{s}"] for s in self._target_symbols
                 if f"{name}_{s}" in out
             ]
             out[name] = sum(vals) / len(vals) if vals else 0.0
+        # Surface the configured headline as the canonical ``reward``
+        # key. coerce_scores in the curated handler picks this up
+        # directly without needing the headline name in the spec.
         out["reward"] = out[self._headline_metric]
         return out
 

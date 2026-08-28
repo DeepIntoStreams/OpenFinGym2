@@ -1,18 +1,16 @@
-"""Curated task: Realtime Stock Forecasting via Alpaca API.
+"""Curated task: Realtime Crypto Forecasting via Binance API.
 
-Streaming **price prediction** on real-time US equity market data.
-The agent submits an absolute future price (``predicted_price``) for
+Streaming **price prediction** on real-time BTC/USD market data. The
+agent submits an absolute future price (``predicted_price``) for
 ``horizon_bars`` ahead and direction is *derived* server-side from
 ``sign(predicted_price - entry_price)``. Direction-only submissions
-also work but score on directional metrics only. Ground truth is
-deferred until the resolver service fetches the exit price after the
-prediction horizon elapses.
+also work but score on directional metrics only (price metrics NaN
+out). Ground truth is deferred until the resolver service fetches the
+exit price after the prediction horizon elapses.
 
-Requires Alpaca API keys (free IEX tier is sufficient).  Set the
-``ALPACA_API_KEY`` and ``ALPACA_SECRET_KEY`` environment variables.
+No API key required -- uses the free Binance public API.
 
-Interaction pattern (gym loop, batch_mode=False)::
-
+Interaction pattern (gym loop, batch_mode=False):
     obs = task.reset()                          # current market snapshot
     while not done:
         action = agent.act(obs)                 # {"symbol": ..., "predicted_price": ...}
@@ -24,18 +22,16 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from open_fin_gym.realtime.contracts import TaskMetadata
-from open_fin_gym.realtime.data_providers.alpaca import AlpacaProvider
+from open_fin_gym.realtime.data_providers.binance import BinanceProvider
 from open_fin_gym.realtime.ledger import PredictionLedger
-from open_fin_gym.realtime.tasks.base_realtime_task import (
-    RealtimeForecastingTask,
-)
+from open_fin_gym.realtime.tasks.base_realtime_task import RealtimeForecastingTask
 
 _RESULTS_DIR = Path(__file__).resolve().parents[3] / "results"
 _DEFAULT_DB = _RESULTS_DIR / "predictions.db"
 
 
-class RealtimeStockForecasting(RealtimeForecastingTask):
-    """One-liner realtime forecasting on US equities via Alpaca.
+class RealtimeCryptoForecasting(RealtimeForecastingTask):
+    """One-liner realtime forecasting on Binance crypto markets.
 
     Pre-configured with sensible defaults so agent authors do not need to
     manually wire the data provider and prediction ledger. The curated
@@ -45,7 +41,7 @@ class RealtimeStockForecasting(RealtimeForecastingTask):
     Args:
         config: Recognised keys (all optional, with defaults):
 
-            - ``"symbols"``: list of tickers (default ``["SPY"]``)
+            - ``"symbols"``: list of trading pairs (default ``["BTCUSDT"]``)
             - ``"horizon_bars"``: prediction horizon in bars of
               ``data_resolution`` (default ``5``); the exit price is the
               close of the bar this many bars ahead of submission
@@ -64,9 +60,8 @@ class RealtimeStockForecasting(RealtimeForecastingTask):
               deferred-submit endpoint with a 422.
             - ``"db_path"``: SQLite ledger path (default ``data/results/predictions.db``)
             - ``"headline_metric"``: which reward becomes the trial
-              ``reward.json`` headline (default ``"price_mape"``).
-        provider: Override the default :class:`AlpacaProvider` (useful for tests).
-        ledger: Override the default file-backed ledger.
+              ``reward.json`` headline (default ``"price_mape"``). See
+              :class:`RealtimeForecastingTask` for the full panel.
     """
 
     def __init__(
@@ -77,7 +72,7 @@ class RealtimeStockForecasting(RealtimeForecastingTask):
         ledger: Optional[PredictionLedger] = None,
     ) -> None:
         config = config or {}
-        symbols = config.get("symbols", ["SPY"])
+        symbols = config.get("symbols", ["BTCUSDT"])
         horizon_bars = int(config.get("horizon_bars", 5))
         context_resolutions = config.get(
             "context_resolutions",
@@ -88,10 +83,11 @@ class RealtimeStockForecasting(RealtimeForecastingTask):
         db_path = config.get("db_path", str(_DEFAULT_DB))
         headline_metric = str(config.get("headline_metric", "price_mape"))
 
+        # Ensure results directory exists
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
 
         if provider is None:
-            provider = AlpacaProvider()
+            provider = BinanceProvider()
         if ledger is None:
             ledger = PredictionLedger(db_path)
 
@@ -111,19 +107,20 @@ class RealtimeStockForecasting(RealtimeForecastingTask):
         base = super().metadata()
         sym_label = "_".join(s.lower() for s in self._symbols)
         return TaskMetadata(
-            task_id=f"realtime_stock_forecasting_{sym_label}",
-            title=f"Realtime Stock Forecasting ({', '.join(self._symbols)}, Alpaca)",
+            task_id=f"realtime_crypto_forecasting_{sym_label}",
+            title=f"Realtime Crypto Forecasting ({', '.join(self._symbols)}, Binance)",
             description=(
-                "Streaming price forecasting on US equities via the Alpaca "
-                "data API. Agent submits an absolute predicted_price for the "
-                f"next {self._horizon_minutes}-minute horizon; direction is "
+                "Streaming price forecasting on Binance crypto markets. "
+                "Agent submits an absolute predicted_price for the next "
+                f"{self._horizon_minutes}-minute horizon; direction is "
                 "derived server-side. Ground truth is resolved after the "
-                f"horizon elapses. Headline metric: {self._headline_metric}."
+                "horizon elapses. Headline metric: "
+                f"{self._headline_metric}. Uses the free Binance public API."
             ),
             interaction_model=base.interaction_model,
             task_type=base.task_type,
             data_requirements=base.data_requirements,
-            tags=["stock", "forecasting", "realtime", "alpaca"],
+            tags=["crypto", "forecasting", "realtime", "binance"],
             difficulty=base.difficulty,
             version="2.0.0",
         )

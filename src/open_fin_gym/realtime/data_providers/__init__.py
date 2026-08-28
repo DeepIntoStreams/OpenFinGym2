@@ -13,3 +13,4 @@ __all__ = [
     "OrderBookSnapshot",
     "StreamingDataProvider",
 ]
+from open_fin_gym.realtime.data_providers.polymarket import PolymarketProvider

@@ -5,17 +5,33 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException
 
+from open_fin_gym.realtime.tasks.offline_crypto_forecasting import (
+    OfflineCryptoForecasting,
+)
+from open_fin_gym.realtime.tasks.offline_crypto_trading import (
+    OfflineCryptoTrading,
+)
 from open_fin_gym.realtime.tasks.offline_stock_forecasting import (
     OfflineStockForecasting,
 )
 from open_fin_gym.realtime.tasks.offline_stock_trading import (
     OfflineStockTrading,
 )
+from open_fin_gym.realtime.tasks.realtime_crypto_forecasting import (
+    RealtimeCryptoForecasting,
+)
+from open_fin_gym.realtime.tasks.realtime_crypto_trading import (
+    RealtimeCryptoTrading,
+)
+from open_fin_gym.realtime.tasks.realtime_polymarket import RealtimePolymarket
 from open_fin_gym.realtime.tasks.realtime_stock_forecasting import (
     RealtimeStockForecasting,
 )
 from open_fin_gym.realtime.tasks.realtime_stock_trading import (
     RealtimeStockTrading,
+)
+from open_fin_gym.realtime.tasks.realtime_stock_trading_alpaca_paper import (
+    RealtimeStockTradingAlpacaPaper,
 )
 
 CONFIG_PATH = Path(os.environ.get("BROKER_CONFIG", "/broker/episode.json"))
@@ -26,6 +42,12 @@ TASKS = {
     "realtime_forecasting": RealtimeStockForecasting,
     "offline_trading": OfflineStockTrading,
     "offline_forecasting": OfflineStockForecasting,
+    "realtime_trading_alpaca_paper": RealtimeStockTradingAlpacaPaper,
+    "realtime_crypto_trading": RealtimeCryptoTrading,
+    "realtime_crypto_forecasting": RealtimeCryptoForecasting,
+    "offline_crypto_trading": OfflineCryptoTrading,
+    "offline_crypto_forecasting": OfflineCryptoForecasting,
+    "realtime_polymarket": RealtimePolymarket,
 }
 
 
@@ -70,7 +92,21 @@ def create_app() -> FastAPI:
     def score() -> dict:
         return task.evaluate(actions)
 
+    # Batch forecasting hands the agent every feature at once instead of
+    # stepping, so it is served through its own pair of endpoints.
+    @app.get("/features")
+    def features() -> Any:
+        return {
+            "train_features": task.get_train_features(),
+            "train_ground_truth": task.get_train_ground_truth(),
+            "features": task.get_features(),
+        }
+
+    @app.post("/predict")
+    def predict(payload: dict) -> dict:
+        try:
+            return task.predict_and_evaluate(payload["predictions"])
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
     return app
-
-
-app = create_app()

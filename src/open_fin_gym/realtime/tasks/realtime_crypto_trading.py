@@ -1,48 +1,37 @@
-"""Curated task: Realtime Stock Trading via Alpaca API.
+"""Curated task: Realtime Crypto Trading via Binance API.
 
-Paper trading on real-time US equity market data.  The agent receives a
-fresh price snapshot (plus recent bar history and NBBO quotes) each
-step and submits buy/sell/hold actions with a quantity.  Rewards are
-immediate mark-to-market PnL.
+Paper trading on real-time BTC/USD market data.  The agent receives a fresh
+price snapshot (plus recent bar history and order book) each step and
+submits buy/sell/hold actions with a quantity.  Rewards are immediate
+mark-to-market PnL.
 
-Requires Alpaca API keys (free tier is sufficient).  Set the
-``ALPACA_API_KEY`` and ``ALPACA_SECRET_KEY`` environment variables.
+No API key required -- uses the free Binance public API.
 
-Supports two execution modes:
-  - ``"internal_paper"`` (default): in-process paper trading engine
-    (SimulatedExecutor) with configurable slippage and transaction
-    costs. Live prices come from Alpaca; orders never leave the agent
-    container.
-  - ``"alpaca_paper"``: submits real orders to Alpaca's paper-trading
-    environment at ``paper-api.alpaca.markets``. Position state and
-    realized PnL come from Alpaca's account.
-
-Interaction pattern (gym loop)::
-
+Interaction pattern (gym loop):
     obs = task.reset()                          # market + positions snapshot
     while not done:
         action = agent.act(obs)                 # {"action": "buy", "symbol": ..., "quantity": ...}
-        obs, reward, done, info = task.step(action)  # executes via engine
+        obs, reward, done, info = task.step(action)  # executes via paper engine
     rewards = task.evaluate(actions)            # Sharpe, drawdown, PnL, etc.
 """
 
 from typing import Any, Dict, Optional
 
-from open_fin_gym.realtime.config import TradingConfig
 from open_fin_gym.realtime.contracts import TaskMetadata
-from open_fin_gym.realtime.data_providers.alpaca import AlpacaProvider
-from open_fin_gym.realtime.tasks.realtime_trading_task import (
-    RealtimeTradingTask,
-)
+from open_fin_gym.realtime.config import TradingConfig
+from open_fin_gym.realtime.data_providers.binance import BinanceProvider
+from open_fin_gym.realtime.tasks.realtime_trading_task import RealtimeTradingTask
 
 
-class RealtimeStockTrading(RealtimeTradingTask):
-    """One-liner realtime paper trading on US equities via Alpaca.
+class RealtimeCryptoTrading(RealtimeTradingTask):
+    """One-liner realtime paper trading on Binance crypto markets.
 
     Pre-configured with sensible defaults so agent authors do not need to
-    manually wire the data provider and execution engine::
+    manually wire the data provider and execution engine:
 
-        task = RealtimeStockTrading()
+    .. code-block:: python
+
+        task = RealtimeCryptoTrading()
         # Run a basic gym loop or use the in-container runner:
         # open_fin_gym.realtime.agent_runtime
         # .run_realtime_trading_trial
@@ -50,11 +39,9 @@ class RealtimeStockTrading(RealtimeTradingTask):
     Args:
         config: Recognised keys (all optional, with defaults):
 
-            - ``"symbols"``: list of tickers (default ``["SPY"]``)
+            - ``"symbols"``: list of trading pairs (default ``["BTCUSDT"]``)
             - ``"slippage_pct"``: slippage as a fraction (default ``0.001``)
             - ``"transaction_cost_pct"``: per-trade cost fraction (default ``0.0``)
-            - ``"execution_mode"``: ``"internal_paper"`` or ``"alpaca_paper"``
-              (default ``"internal_paper"``)
             - ``"context_resolutions"``: non-empty list of
               ``{"interval": str, "bars": positive int}`` entries (default
               ``[{"interval": "1m", "bars": 60}]``). Each entry instantiates
@@ -71,7 +58,6 @@ class RealtimeStockTrading(RealtimeTradingTask):
               on non-target symbols are still allowed (so the agent can
               hedge on context-only assets) but they do not contribute to
               PnL / Sharpe / drawdown / win-rate.
-        provider: Override the default :class:`AlpacaProvider` (useful for tests).
     """
 
     def __init__(
@@ -81,9 +67,8 @@ class RealtimeStockTrading(RealtimeTradingTask):
         provider: Optional[Any] = None,
     ) -> None:
         config = config or {}
-        symbols = config.get("symbols", ["SPY"])
+        symbols = config.get("symbols", ["BTCUSDT"])
         max_steps = int(config.get("max_steps", 0))
-        execution_mode = config.get("execution_mode", "internal_paper")
         context_resolutions = config.get(
             "context_resolutions",
             [{"interval": "1m", "bars": 60}],
@@ -92,13 +77,19 @@ class RealtimeStockTrading(RealtimeTradingTask):
         target_symbols = config.get("target_symbols")
         initial_capital = float(config.get("initial_capital", 100000.0))
 
+        # execution_mode is intentionally not config-exposed for crypto:
+        # Binance has no paper-trading REST API analogous to Alpaca's
+        # paper-api.alpaca.markets, so "internal_paper" (in-process
+        # SimulatedExecutor against the live Binance feed) is the only
+        # mode this task can offer. Stock tasks (RealtimeStockTrading)
+        # DO expose this knob because Alpaca supports both modes.
         trading_config = TradingConfig(
             slippage_pct=float(config.get("slippage_pct", 0.001)),
             transaction_cost_pct=float(config.get("transaction_cost_pct", 0.0)),
-            execution_mode=execution_mode,
+            execution_mode="internal_paper",
         )
         if provider is None:
-            provider = AlpacaProvider()
+            provider = BinanceProvider()
 
         super().__init__(
             config=config,
@@ -116,17 +107,17 @@ class RealtimeStockTrading(RealtimeTradingTask):
         base = super().metadata()
         sym_label = "_".join(s.lower() for s in self._symbols)
         return TaskMetadata(
-            task_id=f"realtime_stock_trading_{sym_label}",
-            title=f"Realtime Stock Trading ({', '.join(self._symbols)}, Alpaca)",
+            task_id=f"realtime_crypto_trading_{sym_label}",
+            title=f"Realtime Crypto Trading ({', '.join(self._symbols)}, Binance)",
             description=(
-                "Realtime paper trading on US equities via the Alpaca data API. "
-                "Agent submits buy/sell/hold actions with quantities; rewards "
-                "are immediate mark-to-market PnL."
+                "Realtime paper trading on Binance crypto markets. Agent submits "
+                "buy/sell/hold actions with quantities; rewards are immediate "
+                "mark-to-market PnL. Uses the free Binance public API."
             ),
             interaction_model=base.interaction_model,
             task_type=base.task_type,
             data_requirements=base.data_requirements,
-            tags=["stock", "trading", "realtime", "alpaca"],
+            tags=["crypto", "trading", "realtime", "binance"],
             difficulty=base.difficulty,
             version="1.0.0",
         )

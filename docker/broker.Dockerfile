@@ -21,4 +21,4 @@ COPY src/open_fin_gym/broker/ open_fin_gym/broker/
 RUN touch open_fin_gym/__init__.py
 ENV PYTHONPATH=/broker
 
-CMD ["uvicorn", "open_fin_gym.broker.server:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "--factory", "open_fin_gym.broker.server:create_app", "--host", "0.0.0.0", "--port", "8000"]

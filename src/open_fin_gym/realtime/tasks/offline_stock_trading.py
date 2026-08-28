@@ -24,8 +24,8 @@ Note: ``start`` / ``end`` are ISO dates; date-only strings default to
 (e.g. ``"2020-01-02T14:30:00Z"`` for US market open).
 """
 
-from open_fin_gym.realtime.offline_trading import _OfflineTradingTask
 from open_fin_gym.realtime.data_providers.alpaca import AlpacaProvider
+from open_fin_gym.realtime.offline_trading import _OfflineTradingTask
 
 
 class OfflineStockTrading(_OfflineTradingTask):
