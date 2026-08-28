@@ -62,6 +62,12 @@ step with `{"orders": [...]}`. Shorting is allowed and orders are capped by
 buying power. Limit and stop orders queue across bars under `gtc` or expire on
 the same bar under `ioc`, and fill pessimistically at the limit or stop price.
 
+## Account state
+
+The episode refuses to start if the brokerage account already holds positions or
+open orders, rather than clearing them, so a stale account is a loud failure and
+never a silently contaminated result.
+
 ## Scoring
 
 Headline metric is `pnl`. Also reported: `sharpe_ratio`, `max_drawdown`,

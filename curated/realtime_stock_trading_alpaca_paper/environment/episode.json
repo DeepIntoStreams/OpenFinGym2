@@ -28,7 +28,6 @@
       }
     ],
     "data_resolution": "1m",
-    "execution_mode": "alpaca_paper",
-    "flatten_on_start": true
+    "execution_mode": "alpaca_paper"
   }
 }
