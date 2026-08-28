@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 from fastapi import FastAPI, HTTPException
 
 from open_fin_gym.realtime.tasks.offline_crypto_forecasting import (
@@ -34,6 +35,43 @@ from open_fin_gym.realtime.tasks.realtime_stock_trading_alpaca_paper import (
     RealtimeStockTradingAlpacaPaper,
 )
 
+
+def as_json(value: Any) -> Any:
+    """
+    Convert arrays to plain lists so the payload can be serialised
+
+    Args:
+        value: Feature or target data from a task
+
+    Returns:
+        The same data using only JSON types
+    """
+    if isinstance(value, dict):
+        return {k: as_json(v) for k, v in value.items()}
+    if hasattr(value, "tolist"):
+        return value.tolist()
+    if isinstance(value, (list, tuple)):
+        return [as_json(v) for v in value]
+    return value
+
+
+def as_arrays(value: Any) -> Any:
+    """
+    Convert lists back to arrays for the task's own scoring code
+
+    Args:
+        value: Predictions as submitted by the agent
+
+    Returns:
+        The same data with lists replaced by arrays
+    """
+    if isinstance(value, dict):
+        return {k: as_arrays(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return np.asarray(value)
+    return value
+
+
 CONFIG_PATH = Path(os.environ.get("BROKER_CONFIG", "/broker/episode.json"))
 LEDGER_PATH = Path(os.environ.get("BROKER_LEDGER", "/ledger/episode.jsonl"))
 
@@ -59,6 +97,9 @@ def create_app() -> FastAPI:
 
     task = TASKS[spec["kind"]](config=spec.get("config", {}))
     actions: list[Any] = []
+    # Batch tasks score through /predict, so the verifier reads that result
+    # rather than re-evaluating an action list it never filled.
+    batch_score: dict = {}
     app = FastAPI()
 
     @app.get("/healthz")
@@ -90,23 +131,26 @@ def create_app() -> FastAPI:
 
     @app.get("/score")
     def score() -> dict:
-        return task.evaluate(actions)
+        return batch_score or task.evaluate(actions)
 
     # Batch forecasting hands the agent every feature at once instead of
     # stepping, so it is served through its own pair of endpoints.
     @app.get("/features")
     def features() -> Any:
         return {
-            "train_features": task.get_train_features(),
-            "train_ground_truth": task.get_train_ground_truth(),
-            "features": task.get_features(),
+            "train_features": as_json(task.get_train_features()),
+            "train_ground_truth": as_json(task.get_train_ground_truth()),
+            "features": as_json(task.get_features()),
         }
 
     @app.post("/predict")
     def predict(payload: dict) -> dict:
         try:
-            return task.predict_and_evaluate(payload["predictions"])
+            batch_score.update(
+                task.predict_and_evaluate(as_arrays(payload["predictions"]))
+            )
         except Exception as e:
             raise HTTPException(status_code=400, detail=str(e))
+        return batch_score
 
     return app
