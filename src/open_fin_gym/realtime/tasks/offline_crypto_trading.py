@@ -18,8 +18,8 @@ Interaction pattern (gym loop)::
     rewards = task.evaluate(actions)
 """
 
-from open_fin_gym.realtime.offline_trading import _OfflineTradingTask
 from open_fin_gym.realtime.data_providers.binance import BinanceProvider
+from open_fin_gym.realtime.offline_trading import _OfflineTradingTask
 
 
 class OfflineCryptoTrading(_OfflineTradingTask):

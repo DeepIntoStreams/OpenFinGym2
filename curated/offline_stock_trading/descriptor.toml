@@ -1,0 +1,60 @@
+# Fields a paper may set on this bundle. Anything absent falls back to defaults.
+task_id  = "offline_stock_trading"
+scope_id = "offline_trading"
+description = """\
+Sequential trading over replayed historical hourly bars for US equities. The \
+agent submits one order intent per bar and is scored on the resulting account."""
+
+[config_schema.symbols]
+type = "list[str]"
+notes = "US equity tickers, common stocks and major ETFs, no exchange suffix. A non-US instrument should be mapped onto its closest US-listed equivalent."
+
+[config_schema.target_symbols]
+type = "list[str]"
+notes = "Subset of symbols the metrics score. Trades outside it are allowed for hedging but do not count."
+
+[config_schema.data_resolution]
+type = "str"
+options = ["1m", "5m", "15m", "30m", "1h", "1d", "1w"]
+notes = "Bar cadence the episode steps at. Must be the finest interval in context_resolutions. Sub-hourly intervals only carry data during market hours."
+
+[config_schema.context_resolutions]
+type = "list[{interval, bars}]"
+notes = "Observation history per interval, coarsest last."
+
+[config_schema.start]
+type = "date"
+notes = "Backtest start, inclusive, YYYY-MM-DD. Take the paper's sample start when it names one."
+
+[config_schema.end]
+type = "date"
+notes = "Backtest end, exclusive."
+
+[config_schema.episode_length]
+type = "int"
+notes = "Number of data_resolution bars per episode."
+
+[config_schema.slippage_pct]
+type = "float"
+notes = "Per-trade slippage as a fraction of notional, e.g. 0.0005 for 5 basis points. Use the paper's assumption when it states one."
+
+[config_schema.transaction_cost_pct]
+type = "float"
+notes = "Per-trade commission as a fraction of notional."
+
+[defaults]
+symbols = ["SPY", "QQQ", "IWM"]
+target_symbols = ["SPY", "QQQ"]
+context_resolutions = [
+    { interval = "1h", bars = 20 },
+    { interval = "1d", bars = 14 },
+    { interval = "1w", bars = 8 },
+]
+data_resolution = "1h"
+start = "2020-01-01"
+end = "2023-01-01"
+initial_cash = 100000.0
+episode_length = 200
+start_offset = 0
+slippage_pct = 0.0
+transaction_cost_pct = 0.0

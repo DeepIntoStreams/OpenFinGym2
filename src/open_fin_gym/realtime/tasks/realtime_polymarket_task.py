@@ -47,9 +47,7 @@ from typing import Any, Dict, List, Optional
 
 from open_fin_gym.realtime.contracts import BaseTask, TaskMetadata
 from open_fin_gym.realtime.data_providers.base import EventDataProvider
-from open_fin_gym.realtime.data_providers.polymarket import (
-    PolymarketProvider,
-)
+from open_fin_gym.realtime.data_providers.polymarket import PolymarketProvider
 from open_fin_gym.realtime.ledger import PredictionLedger
 
 logger = logging.getLogger(__name__)

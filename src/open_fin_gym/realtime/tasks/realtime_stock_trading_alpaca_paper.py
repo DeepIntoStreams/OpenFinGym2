@@ -36,10 +36,12 @@ Interaction pattern (identical to :class:`RealtimeStockTrading`)::
 
 from typing import Any, Dict, Optional
 
+from open_fin_gym.realtime.config import TradingConfig
 from open_fin_gym.realtime.contracts import TaskMetadata
 from open_fin_gym.realtime.data_providers.alpaca import AlpacaProvider
-from open_fin_gym.realtime.tasks.realtime_trading_task import RealtimeTradingTask
-from open_fin_gym.realtime.config import TradingConfig
+from open_fin_gym.realtime.tasks.realtime_trading_task import (
+    RealtimeTradingTask,
+)
 
 
 class RealtimeStockTradingAlpacaPaper(RealtimeTradingTask):

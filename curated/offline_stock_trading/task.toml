@@ -1,0 +1,35 @@
+schema_version = "1.4"
+
+# Collected from the broker sidecar so the trial keeps the traded ledger
+artifacts = [{ source = "/ledger/episode.jsonl", service = "broker" }]
+
+[task]
+name = "openfingym/offline_stock_trading"
+version = "1.0.0"
+description = "Sequential trading over historical US equity bars."
+authors = []
+keywords = ["trading", "offline", "equities"]
+
+[metadata]
+family = "offline_trading"
+category = "machine-learning"
+difficulty_explanation = "Requires a sequential policy with no look-ahead over replayed bars."
+
+[verifier]
+environment_mode = "shared"
+timeout_sec = 600.0
+
+[agent]
+timeout_sec = 1800.0
+
+[environment]
+network_mode = "allowlist"
+allowed_hosts = ["data.alpaca.markets", "stream.data.alpaca.markets"]
+build_timeout_sec = 900.0
+os = "linux"
+cpus = 2
+memory_mb = 4096
+
+[environment.env]
+ALPACA_API_KEY = "${ALPACA_API_KEY_ID}"
+ALPACA_SECRET_KEY = "${ALPACA_API_SECRET_KEY}"
