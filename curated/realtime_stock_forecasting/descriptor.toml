@@ -23,6 +23,10 @@ notes = "Bar cadence the episode steps at. Must be the finest interval in contex
 type = "list[{interval, bars}]"
 notes = "Observation history per interval, coarsest last."
 
+[config_schema.max_steps]
+type = "int"
+notes = "Predictions per episode. An episode cannot outlive one trading session."
+
 [config_schema.horizon_bars]
 type = "int"
 notes = "How far ahead the agent predicts, in bars of data_resolution."
@@ -34,3 +38,4 @@ horizon_bars = 5
 context_resolutions = [{ interval = "1m", bars = 60 }, { interval = "5m", bars = 24 }, { interval = "1h", bars = 24 }]
 data_resolution = "1m"
 headline_metric = "price_mape"
+max_steps = 10

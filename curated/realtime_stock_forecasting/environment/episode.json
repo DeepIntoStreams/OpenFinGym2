@@ -26,6 +26,7 @@
       }
     ],
     "data_resolution": "1m",
-    "headline_metric": "price_mape"
+    "headline_metric": "price_mape",
+    "max_steps": 10
   }
 }
