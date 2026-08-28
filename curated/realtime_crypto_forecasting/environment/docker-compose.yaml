@@ -1,14 +1,13 @@
 services:
   main:
-    image: localhost/openfingym-broker
     depends_on:
       - broker
     environment:
       BROKER_URL: http://broker:8000
-    command: sleep infinity
 
   broker:
     image: localhost/openfingym-broker
+    pull_policy: never
     environment:
       BROKER_CONFIG: /broker/episode.json
     volumes:
