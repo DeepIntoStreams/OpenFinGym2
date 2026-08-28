@@ -20,15 +20,13 @@ for _ in range(60):
     except Exception:
         time.sleep(2)
 
-obs = call("/reset", {})
+markets = call("/reset", {})
 
-# Reference policy: a random walk forecast, i.e. predict the current price.
-targets = [s for s in obs if isinstance(obs[s], dict) and "price" in obs[s]]
-while True:
-    symbol = targets[0]
-    action = {"symbol": symbol, "predicted_price": float(obs[symbol]["price"])}
-    result = call("/step", action)
-    if result["done"]:
-        break
-    obs = result["observation"]
+# Reference policy: quote back the market's own YES price.
+predictions = [
+    {"symbol": m["symbol"],
+     "predicted_yes_probability": float(m.get("current_price") or 0.5)}
+    for m in markets["markets"]
+]
+print(json.dumps(call("/step", {"predictions": predictions}))[:200])
 PY

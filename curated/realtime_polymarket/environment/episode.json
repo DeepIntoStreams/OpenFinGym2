@@ -1,6 +1,18 @@
 {
   "kind": "realtime_polymarket",
   "config": {
-    "headline_metric": "brier_score"
+    "headline_metric": "brier_score",
+    "discovery": {
+      "resolution_window_hours_min": 1,
+      "resolution_window_hours_max": 6,
+      "min_yes_price": 0.01,
+      "max_yes_price": 0.99,
+      "min_24h_volume_usd": 1000.0,
+      "min_orderbook_depth_usd": 100.0,
+      "max_markets_per_trial": 20,
+      "categories": [],
+      "exclude_disputed": true,
+      "binary_only": true
+    }
   }
 }

@@ -2,10 +2,14 @@
 
 ## Problem
 
-Probability forecasting on live Polymarket prediction markets.
+Estimate the probability that each of a set of live Polymarket prediction
+markets resolves YES. Markets are discovered at trial setup rather than read
+from a fixed list, because each market resolves once and is never reused. Only
+binary markets resolving within the next few hours are included.
 
-Markets are discovered at trial setup rather than read from a fixed symbol list,
-because each prediction market resolves once and is never reused.
+This is a single-shot task: you receive the whole market universe, submit one
+batch of probabilities, and the episode ends. Scoring is deferred until the
+markets actually resolve.
 
 ## Protocol
 
@@ -21,25 +25,42 @@ for _ in range(60):
         break
     except requests.RequestException:
         time.sleep(2)
+
+universe = requests.post(f"{broker}/reset", json={}).json()
+predictions = [
+    {"symbol": m["symbol"], "predicted_yes_probability": estimate(m)}
+    for m in universe["markets"]
+]
+requests.post(f"{broker}/step", json={"predictions": predictions}).json()
 ```
 
+The single `step` ends the episode and returns `done: true`.
+
+## Observation
+
 ```python
-obs = requests.post(f"{broker}/reset", json={}).json()
-while True:
-    result = requests.post(f"{broker}/step", json=forecast(obs)).json()
-    if result["done"]:
-        break
-    obs = result["observation"]
+{"markets": [{"symbol", "question", "description", "categories",
+              "current_price", "best_bid", "best_ask", "outcomes",
+              "outcome_prices", "liquidity", "resolution_at",
+              "active", "closed"}]}
 ```
+
+`current_price` is the market's own YES price, and `resolution_at` is when it
+settles. Around twenty markets are discovered per trial, all binary and all
+resolving within a few hours.
 
 ## Action
 
-A probability for the market's outcome:
+One probability per market:
 
 ```python
-{"market_id": str, "probability": float}
+{"symbol": str, "predicted_yes_probability": float}  # in [0, 1]
 ```
+
+Markets outside the discovered universe are ignored.
 
 ## Scoring
 
-Headline metric is `brier_score`, lower being better.
+Headline metric is `brier_score`, lower being better, computed once each market
+resolves. Until then the episode reports `status_deferred`. Markets that resolve
+at exactly 0.5 are dropped from scoring.
