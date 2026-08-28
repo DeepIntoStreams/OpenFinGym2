@@ -127,10 +127,8 @@ pyrightconfig.json
 pipeline.db
 # MlFlow
 mlruns.db
+mlartifacts/
 # Default generated tasks
 /tasks
 # Generated docs
 /docs/build/
-
-# Broker source is copied into the curated bundle at export
-/curated/*/environment/realtime/
