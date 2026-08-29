@@ -7,6 +7,10 @@ from open_fin_gym.pipeline.steps.task_extraction.prompts import (
     Dataset,
 )
 from open_fin_gym.pipeline.steps.task_extraction.utils import TaskSpecification
+from open_fin_gym.pipeline.task_types import (
+    ForecastingParams,
+    GenerationParams,
+)
 
 
 def make_dataset(name: str, filename: str) -> Dataset:
@@ -44,7 +48,7 @@ def make_spec(**overrides) -> TaskSpecification:
 
 
 def test_clean_spec_has_no_issues():
-    assert structural_issues(make_spec()) == []
+    assert structural_issues(make_spec(), ForecastingParams) == []
 
 
 @pytest.mark.parametrize(
@@ -68,12 +72,12 @@ def test_flags_empty_dataset_group(field):
             )
         ],
     )
-    issues = structural_issues(spec)
+    issues = structural_issues(spec, ForecastingParams)
     assert issues == [f"{field} is empty"]
 
 
 def test_flags_empty_metrics():
-    issues = structural_issues(make_spec(metrics=[]))
+    issues = structural_issues(make_spec(metrics=[]), ForecastingParams)
     assert issues == ["assessment_metrics is empty"]
 
 
@@ -89,7 +93,7 @@ def test_flags_duplicate_filenames_across_roles():
             )
         ],
     )
-    issues = structural_issues(spec)
+    issues = structural_issues(spec, ForecastingParams)
     assert len(issues) == 1
     assert "shared.csv" in issues[0]
     assert "duplicate" in issues[0].lower()
@@ -105,7 +109,7 @@ def test_flags_metric_referencing_unknown_dataset():
             )
         ]
     )
-    issues = structural_issues(spec)
+    issues = structural_issues(spec, ForecastingParams)
     assert len(issues) == 1
     assert "mse" in issues[0]
     assert "does_not_exist.csv" in issues[0]
@@ -117,7 +121,7 @@ def test_generation_spec_with_empty_targets_and_inputs_has_no_issues():
         training_targets=[],
         test_inputs=[],
     )
-    assert structural_issues(spec) == []
+    assert structural_issues(spec, GenerationParams) == []
 
 
 def test_generation_spec_missing_test_targets_is_flagged():
@@ -130,7 +134,7 @@ def test_generation_spec_missing_test_targets_is_flagged():
             )
         ],
     )
-    assert structural_issues(spec) == ["test_targets is empty"]
+    assert structural_issues(spec, GenerationParams) == ["test_targets is empty"]
 
 
 def test_generation_spec_missing_required_group_is_flagged():
@@ -143,4 +147,4 @@ def test_generation_spec_missing_required_group_is_flagged():
             )
         ],
     )
-    assert structural_issues(spec) == ["test_outputs is empty"]
+    assert structural_issues(spec, GenerationParams) == ["test_outputs is empty"]
