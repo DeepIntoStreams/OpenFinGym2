@@ -132,3 +132,6 @@ mlartifacts/
 /tasks
 # Generated docs
 /docs/build/
+
+# Local working notes
+/HANDOVER_TRADING_TASKS.md
