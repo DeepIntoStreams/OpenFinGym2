@@ -1,6 +1,7 @@
 import pytest
 
-from open_fin_gym.pipeline.db.tables import TaskType
+from open_fin_gym.pipeline.db.tables import JudgeLabel, TaskType
+from open_fin_gym.pipeline.steps.task_critic.prompts import TaskCritique
 from open_fin_gym.pipeline.steps.task_critic.utils import structural_issues
 from open_fin_gym.pipeline.steps.task_extraction.prompts import (
     AssessmentMetric,
@@ -144,3 +145,18 @@ def test_generation_spec_missing_required_group_is_flagged():
         ],
     )
     assert structural_issues(spec) == ["test_outputs is empty"]
+
+
+def test_authentication_gates_label():
+    critique = TaskCritique(
+        consistency_assessment="fine",
+        completeness_assessment="fine",
+        data_availability_assessment="requires login",
+        requires_authentication=True,
+        issues="none",
+        label=JudgeLabel.ACCEPTED,
+        score=9.0,
+        confidence=0.9,
+    )
+    assert critique.label == JudgeLabel.REJECTED
+    assert "Overridden to be rejected" in critique.issues
