@@ -1,0 +1,36 @@
+{
+  "kind": "offline_crypto_trading",
+  "config": {
+    "symbols": [
+      "BTCUSDT",
+      "ETHUSDT",
+      "SOLUSDT"
+    ],
+    "target_symbols": [
+      "BTCUSDT",
+      "ETHUSDT"
+    ],
+    "context_resolutions": [
+      {
+        "interval": "1h",
+        "bars": 20
+      },
+      {
+        "interval": "4h",
+        "bars": 24
+      },
+      {
+        "interval": "1d",
+        "bars": 14
+      }
+    ],
+    "data_resolution": "1h",
+    "start": "2020-01-01",
+    "end": "2023-01-01",
+    "initial_cash": 100000.0,
+    "episode_length": 200,
+    "start_offset": 0,
+    "slippage_pct": 0.0,
+    "transaction_cost_pct": 0.0
+  }
+}

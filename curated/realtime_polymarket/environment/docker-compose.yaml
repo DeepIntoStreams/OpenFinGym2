@@ -1,0 +1,18 @@
+services:
+  main:
+    depends_on:
+      - broker
+    environment:
+      BROKER_URL: http://broker:8000
+
+  broker:
+    image: localhost/openfingym-broker
+    pull_policy: never
+    environment:
+      BROKER_CONFIG: /broker/episode.json
+    volumes:
+      - ./episode.json:/broker/episode.json:ro
+      - ledger:/ledger
+
+volumes:
+  ledger:

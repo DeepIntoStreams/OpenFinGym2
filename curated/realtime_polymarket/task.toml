@@ -1,0 +1,31 @@
+schema_version = "1.4"
+
+# Collected from the broker sidecar so the trial keeps the episode ledger
+artifacts = [{ source = "/ledger/episode.jsonl", service = "broker" }]
+
+[task]
+name = "openfingym/realtime_polymarket"
+version = "1.0.0"
+description = "Probability forecasting on live prediction markets."
+authors = []
+keywords = ["realtime", "polymarket", "polymarket"]
+
+[metadata]
+family = "realtime_polymarket"
+category = "machine-learning"
+difficulty_explanation = "Requires acting on live Polymarket prediction markets without look-ahead."
+
+[verifier]
+environment_mode = "shared"
+timeout_sec = 600.0
+
+[agent]
+timeout_sec = 1800.0
+
+[environment]
+network_mode = "allowlist"
+allowed_hosts = ["clob.polymarket.com", "gamma-api.polymarket.com"]
+build_timeout_sec = 900.0
+os = "linux"
+cpus = 2
+memory_mb = 4096

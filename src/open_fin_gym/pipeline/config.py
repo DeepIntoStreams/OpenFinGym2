@@ -13,6 +13,7 @@ from .steps.task_critic.config import TaskCriticConfig
 from .steps.task_export.config import TaskExportConfig
 from .steps.task_extraction.config import TaskExtractionConfig
 from .steps.task_generator.config import TaskGenerationConfig
+from .steps.task_routing.config import TaskRoutingConfig
 
 
 @dataclass
@@ -49,6 +50,7 @@ class PipelineConfig:
     judge: JudgeConfig
     task_extractor: TaskExtractionConfig
     task_critic: TaskCriticConfig
+    task_router: TaskRoutingConfig
     task_generator: TaskGenerationConfig
     task_exporter: TaskExportConfig
     scopes: list[Scope]

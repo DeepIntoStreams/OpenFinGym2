@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 
-from open_fin_gym.pipeline.db.tables import TaskType
+from open_fin_gym.pipeline.db.tables import GENERATED_TASK_TYPES, TaskType
 from open_fin_gym.pipeline.steps.task_extraction.prompts import (
     AssessmentMetric,
     Dataset,
@@ -21,10 +21,10 @@ ROW_CORRESPONDENCE_BY_TASK_TYPE = {
 
 # Prompts are built before the generator's error handling, so an unhandled task type
 # would abort a run that has already spent LLM calls. Fail on import instead.
-if set(ROW_CORRESPONDENCE_BY_TASK_TYPE) != set(TaskType):
+if set(ROW_CORRESPONDENCE_BY_TASK_TYPE) != GENERATED_TASK_TYPES:
     raise ValueError(
         f"No row correspondence defined for task type(s) "
-        f"{sorted(set(TaskType) - set(ROW_CORRESPONDENCE_BY_TASK_TYPE))}"
+        f"{sorted(GENERATED_TASK_TYPES - set(ROW_CORRESPONDENCE_BY_TASK_TYPE))}"
     )
 
 
