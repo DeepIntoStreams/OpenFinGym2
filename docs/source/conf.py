@@ -35,8 +35,8 @@ autodoc_typehints = "signature"
 
 exclude_patterns = ["_autoapi_templates/**"]
 
-napoleon_google_docstring = False
-napoleon_numpy_docstring = True
+napoleon_google_docstring = True
+napoleon_numpy_docstring = False
 
 napoleon_use_admonition_for_examples = False
 napoleon_use_admonition_for_notes = True
