@@ -13,6 +13,7 @@ from .steps.task_critic.config import TaskCriticConfig
 from .steps.task_export.config import TaskExportConfig
 from .steps.task_extraction.config import TaskExtractionConfig
 from .steps.task_generator.config import TaskGenerationConfig
+from .task_types import ForecastingParams, GenerationParams, TaskTypeParams
 
 
 @dataclass
@@ -20,6 +21,7 @@ class Scope:
     id: str
     name: str
     task_type: TaskType
+    task_params: TaskTypeParams = field(init=False)
     description: str
     enabled: bool = True
     queries: list[str] = field(default_factory=list)
@@ -27,6 +29,12 @@ class Scope:
 
     def __post_init__(self):
         self.task_type = TaskType(self.task_type)
+        if self.task_type == TaskType.FORECASTING:
+            self.task_params = ForecastingParams
+        elif self.task_type == TaskType.GENERATION:
+            self.task_params = GenerationParams
+        else:
+            raise ValueError(f"Unrecognised task-type {self.task_type}")
 
 
 def scope_context(scope: Scope) -> str:

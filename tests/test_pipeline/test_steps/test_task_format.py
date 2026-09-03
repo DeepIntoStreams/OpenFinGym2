@@ -7,6 +7,11 @@ from open_fin_gym.pipeline.steps.task_generator.prompts import (
     TaskSpecification,
     build_metric_prompt,
 )
+from open_fin_gym.pipeline.task_types import (
+    ForecastingParams,
+    GenerationParams,
+    TaskTypeParams,
+)
 
 
 def dataset(name: str) -> Dataset:
@@ -43,13 +48,17 @@ def test_instructions_condition_only_on_real_test_inputs(
 
 
 @pytest.mark.parametrize(
-    "task_type,expected",
+    "task_type,task_params,expected",
     [
-        (TaskType.GENERATION, "as distributions"),
-        (TaskType.FORECASTING, "matches the same row"),
+        (TaskType.GENERATION, GenerationParams, "as distributions"),
+        (TaskType.FORECASTING, ForecastingParams, "matches the same row"),
     ],
 )
-def test_metric_prompt_matches_task_type(task_type: TaskType, expected: str) -> None:
+def test_metric_prompt_matches_task_type(
+    task_type: TaskType,
+    task_params: TaskTypeParams,
+    expected: str,
+) -> None:
     spec = TaskSpecification(
         id=1,
         task_name="task",
@@ -63,4 +72,4 @@ def test_metric_prompt_matches_task_type(task_type: TaskType, expected: str) -> 
         metrics=[],
     )
 
-    assert expected in build_metric_prompt(spec)
+    assert expected in build_metric_prompt(spec, task_params)

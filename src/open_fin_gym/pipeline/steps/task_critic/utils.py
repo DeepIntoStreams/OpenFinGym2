@@ -1,29 +1,10 @@
-from open_fin_gym.pipeline.db.tables import TaskType
 from open_fin_gym.pipeline.steps.task_extraction.utils import TaskSpecification
-
-REQUIRED_GROUPS_BY_TASK_TYPE: dict[TaskType, set[str]] = {
-    TaskType.FORECASTING: {
-        "training_inputs",
-        "training_targets",
-        "test_inputs",
-        "test_targets",
-        "test_outputs",
-    },
-    TaskType.GENERATION: {
-        "training_inputs",
-        "test_targets",
-        "test_outputs",
-    },
-}
-
-if set(REQUIRED_GROUPS_BY_TASK_TYPE) != set(TaskType):
-    raise ValueError(
-        f"No required-group set defined for task type(s) "
-        f"{sorted(set(TaskType) - set(REQUIRED_GROUPS_BY_TASK_TYPE))}"
-    )
+from open_fin_gym.pipeline.task_types import TaskTypeParams
 
 
-def structural_issues(spec: TaskSpecification) -> list[str]:
+def structural_issues(
+    spec: TaskSpecification, task_params: TaskTypeParams
+) -> list[str]:
     """Non-LLM sanity checks on an extracted task spec."""
     issues = []
     groups = {
@@ -33,7 +14,7 @@ def structural_issues(spec: TaskSpecification) -> list[str]:
         "test_targets": spec.test_targets,
         "test_outputs": spec.test_outputs,
     }
-    required = REQUIRED_GROUPS_BY_TASK_TYPE[spec.task_type]
+    required = task_params.required_groups
 
     for name, datasets in groups.items():
         if name in required and not datasets:

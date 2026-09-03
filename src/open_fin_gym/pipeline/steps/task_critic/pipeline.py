@@ -57,7 +57,7 @@ class TaskCritic:
             json.dump([x.model_dump(mode="json") for x in results], f, indent=4)
 
     def critique_task(self, scope: Scope, spec: TaskSpecification) -> CritiqueResult:
-        issues = structural_issues(spec)
+        issues = structural_issues(spec, scope.task_params)
         if issues:
             self.set_status(spec.id, TaskCandidateStatus.REJECTED)
             return CritiqueResult(
