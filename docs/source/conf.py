@@ -1,6 +1,8 @@
 import importlib.metadata
 
 project = "open_fin_gym"
+copyright = "2026, DeepIntoStreams"
+author = "DeepIntoStreams"
 release = importlib.metadata.version("open_fin_gym")
 
 extensions = [
