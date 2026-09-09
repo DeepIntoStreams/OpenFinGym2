@@ -3,6 +3,14 @@
 Pipeline for automatic creation of finance related machine learning tasks for
 agent benchmarking and training.
 
+This is the update project based on the paper
+[OpenFinGym: A Verifiable Multi-Task Gym Environment for Evaluating Quant Agents](https://arxiv.org/pdf/2606.26350).
+
+The original implementation of the pipeline and gym used in the paper
+can be found [here](https://github.com/DeepIntoStreams/OpenFinGym).
+
+## Documentation
+
 Full documentation can be found [here](https://deepintostreams.github.io/OpenFinGym2/).
 
 ## Task Generation Pipeline

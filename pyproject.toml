@@ -47,9 +47,10 @@ dev = [
 ]
 
 [tool.taskipy.tasks]
-pipeline = "python -m open_fin_gym.pipeline"
-docs = { cmd = "sphinx-build -W -b html docs/source docs/build", help="Build docs"}
-mlflow = "mlflow server --host 127.0.0.1 --port 8080 --backend-store-uri sqlite:///./mlruns.db"
+pipeline = "uv run python -m open_fin_gym.pipeline"
+docs = { cmd = "uv run sphinx-build -W -b html docs/source docs/build", help="Build docs"}
+mlflow = "uv run mlflow server --host 127.0.0.1 --port 8080 --backend-store-uri sqlite:///./mlruns.db"
+lint = "uv run pre-commit run --all-files"
 
 [tool.pytest.ini_options]
 python_classes = ["PytestCollect*"]
