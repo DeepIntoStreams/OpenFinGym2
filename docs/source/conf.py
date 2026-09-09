@@ -52,9 +52,9 @@ intersphinx_mapping = {
 
 html_title = "OpenFinGym"
 html_theme = "piccolo_theme"
-# html_static_path = ["_static"]
-# chtml_logo = "./_static/images/logo.png"
-# html_favicon = "./_static/images/favicon.png"
+html_static_path = ["_static"]
+html_logo = "./_static/images/logo.png"
+html_favicon = "./_static/images/favicon.png"
 
 html_theme_options = {
     "source_url": "https://github.com/DeepIntoStreams/OpenFinGym2",
