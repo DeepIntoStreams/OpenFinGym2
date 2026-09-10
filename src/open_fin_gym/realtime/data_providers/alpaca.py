@@ -50,11 +50,20 @@ from typing import Any, Callable
 
 import requests
 
+from alpaca.data.historical import StockHistoricalDataClient
+from alpaca.data.requests import (
+    StockBarsRequest,
+    StockLatestBarRequest,
+    StockLatestQuoteRequest,
+    StockTradesRequest,
+)
+from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
+
 from open_fin_gym.realtime.data_providers.base import (
     MarketSnapshot,
     OrderBookSnapshot,
     interval_to_seconds,
-    to_alpaca_timeframe,
+    parse_interval,
 )
 
 logger = logging.getLogger(__name__)
@@ -93,6 +102,35 @@ _DEFAULT_NON_LAST_SALE_CODES: frozenset[str] = frozenset(
         "7",
     }
 )
+
+
+def _to_sdk_timeframe(interval: str) -> TimeFrame:
+    """Convert a generic interval string into the SDK's timeframe object."""
+    units = {
+        "m": TimeFrameUnit.Minute,
+        "h": TimeFrameUnit.Hour,
+        "d": TimeFrameUnit.Day,
+        "w": TimeFrameUnit.Week,
+        "M": TimeFrameUnit.Month,
+    }
+    value, unit = parse_interval(interval)
+    if unit not in units:
+        raise ValueError(f"No Alpaca timeframe mapping for unit {unit!r}")
+    return TimeFrame(value, units[unit])
+
+
+def _to_snapshot(symbol: str, bar: Any) -> MarketSnapshot:
+    """Convert an SDK bar into the provider-neutral snapshot shape."""
+    return MarketSnapshot(
+        symbol=symbol,
+        timestamp=bar.timestamp,
+        price=float(bar.close),
+        open=float(bar.open),
+        high=float(bar.high),
+        low=float(bar.low),
+        close=float(bar.close),
+        volume=float(bar.volume),
+    )
 
 
 class _AlpacaTradesBarBuilder:
@@ -540,7 +578,6 @@ class AlpacaProvider:
     # Alpaca's free/basic data tier allows ~200 requests/min. We don't
     # pre-throttle on the client; instead we surface a warning when the
     # remaining-quota header drops low and retry once on 429.
-    _REMAINING_WARN_THRESHOLD: int = 20
 
     def __init__(
         self,
@@ -550,19 +587,12 @@ class AlpacaProvider:
         rate_limit_per_min: int | None = None,
     ) -> None:
         self._base = base_url.rstrip("/")
-        self._session = requests.Session()
+        self._feed = "iex"
         self._api_key = os.environ.get(api_key_env, "")
         self._api_secret = os.environ.get(api_secret_env, "")
-        if self._api_key:
-            self._session.headers.update(
-                {
-                    "APCA-API-KEY-ID": self._api_key,
-                    "APCA-API-SECRET-KEY": self._api_secret,
-                }
-            )
-        else:
+        if not self._api_key:
             logger.warning(
-                "Alpaca API key not set (%s).  Requests will likely fail.",
+                "Alpaca API key not set (%s). Requests will likely fail.",
                 api_key_env,
             )
         # rate_limit_per_min retained for back-compat; previously drove a
@@ -570,76 +600,20 @@ class AlpacaProvider:
         # who explicitly passed a tighter envelope can still inspect it.
         self._declared_rate_limit_per_min = rate_limit_per_min
 
-    def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
-        url = f"{self._base}{path}"
-        resp = self._session.get(url, params=params, timeout=15)
-        self._inspect_rate_limit_headers(resp)
-        if resp.status_code == 429:
-            retry_after = self._parse_retry_after(resp.headers.get("Retry-After"))
-            logger.warning(
-                "alpaca 429; sleeping %.2fs and retrying once (path=%s)",
-                retry_after,
-                path,
-            )
-            time.sleep(retry_after)
-            resp = self._session.get(url, params=params, timeout=15)
-            self._inspect_rate_limit_headers(resp)
-        resp.raise_for_status()
-        return resp.json()
-
-    def _inspect_rate_limit_headers(self, resp: requests.Response) -> None:
-        # Alpaca exposes X-RateLimit-Remaining (integer count) and
-        # X-RateLimit-Limit. When remaining drops below the warn
-        # threshold we log so the caller knows the next few calls might
-        # hit 429.
-        remaining_raw = resp.headers.get("X-RateLimit-Remaining")
-        if remaining_raw is None:
-            return
-        try:
-            remaining = int(remaining_raw)
-        except ValueError:
-            return
-        if remaining < self._REMAINING_WARN_THRESHOLD:
-            limit_raw = resp.headers.get("X-RateLimit-Limit", "?")
-            logger.warning(
-                "alpaca rate-limit remaining=%d (of %s); consider backing off",
-                remaining,
-                limit_raw,
-            )
-
-    @staticmethod
-    def _parse_retry_after(raw: str | None) -> float:
-        if raw is None:
-            return 1.0
-        try:
-            return max(0.0, float(raw))
-        except ValueError:
-            return 1.0
-
-    # ── DataProvider interface ────────────────────────────────────────
+        self._data_client = StockHistoricalDataClient(
+            self._api_key, self._api_secret
+        )
 
     def get_current_price(self, symbol: str) -> MarketSnapshot:
-        # Use the latest 1-minute bar rather than `trades/latest` so the
-        # snapshot carries OHLCV + volume. The bar's open-time timestamp
-        # (minute boundary) lets MarketDataBuffer's dedup-by-timestamp
-        # overwrite the same entry on repeated calls within the minute —
-        # keeps `recent_bars[-1]` coherent and stops microsecond-precision
-        # wall-clock injections from accumulating as separate volume=None
-        # entries. `feed=iex` matches `get_bars` for free-tier consistency.
-        data = self._get(f"/v2/stocks/{symbol}/bars/latest", {"feed": "iex"})
-        bar = data.get("bar")
-        if not bar:
+        # The latest bar rather than the latest trade, so the snapshot carries
+        # OHLCV. Its open-time timestamp lets MarketDataBuffer overwrite the
+        # same entry on repeated calls within the minute.
+        request = StockLatestBarRequest(symbol_or_symbols=symbol, feed=self._feed)
+        bars = self._data_client.get_stock_latest_bar(request)
+        bar = bars.get(symbol)
+        if bar is None:
             raise ValueError(f"No latest bar returned for {symbol}")
-        return MarketSnapshot(
-            symbol=symbol,
-            timestamp=datetime.fromisoformat(bar["t"].replace("Z", "+00:00")),
-            price=float(bar["c"]),  # close == latest tick price for in-progress bar
-            open=float(bar["o"]),
-            high=float(bar["h"]),
-            low=float(bar["l"]),
-            close=float(bar["c"]),
-            volume=float(bar["v"]),
-        )
+        return _to_snapshot(symbol, bar)
 
     def get_price_at(
         self, symbol: str, at: datetime, interval: str = "1m"
@@ -656,41 +630,15 @@ class AlpacaProvider:
         start: datetime,
         end: datetime,
     ) -> list[MarketSnapshot]:
-        tf = to_alpaca_timeframe(interval)
-        all_bars: list[MarketSnapshot] = []
-        page_token: str | None = None
-
-        while True:
-            params: dict[str, Any] = {
-                "timeframe": tf,
-                "start": start.isoformat(),
-                "end": end.isoformat(),
-                "limit": 1000,
-                "feed": "iex",
-            }
-            if page_token:
-                params["page_token"] = page_token
-
-            data = self._get(f"/v2/stocks/{symbol}/bars", params)
-            bars_raw = data.get("bars") or []
-            for b in bars_raw:
-                all_bars.append(
-                    MarketSnapshot(
-                        symbol=symbol,
-                        timestamp=datetime.fromisoformat(b["t"].replace("Z", "+00:00")),
-                        price=float(b["c"]),
-                        open=float(b["o"]),
-                        high=float(b["h"]),
-                        low=float(b["l"]),
-                        close=float(b["c"]),
-                        volume=float(b["v"]),
-                    )
-                )
-            page_token = data.get("next_page_token")
-            if not page_token:
-                break
-
-        return all_bars
+        request = StockBarsRequest(
+            symbol_or_symbols=symbol,
+            timeframe=_to_sdk_timeframe(interval),
+            start=start,
+            end=end,
+            feed=self._feed,
+        )
+        bars = self._data_client.get_stock_bars(request)
+        return [_to_snapshot(symbol, b) for b in bars.data.get(symbol, [])]
 
     # ── Raw trades (REST) ────────────────────────────────────────────
 
@@ -703,59 +651,36 @@ class AlpacaProvider:
         limit: int = 10_000,
         feed: str = "iex",
     ) -> list[dict[str, Any]]:
-        """Fetch raw trades via ``GET /v2/stocks/{symbol}/trades``.
+        """Fetch raw trades, shaped like the WebSocket messages.
 
-        Used by :meth:`subscribe_bars` to backfill the tape across a
-        WS silence gap (watchdog timeout) — same trade dicts the WS
-        delivers, so the bar builder can replay them through the
-        normal :meth:`on_trade` path without a separate code shape.
-
-        Pagination: Alpaca caps each response at 10 000 trades. If
-        the result is paginated (``next_page_token`` non-null), the
-        loop fetches additional pages until exhausted.
-
-        ``feed='iex'`` matches the WS subscription and the
-        :meth:`get_bars` aggregator's coverage — REST and WS see the
-        same trade tape under this feed.
+        Used by :meth:`subscribe_bars` to backfill the tape across a silence
+        gap, so the bar builder can replay them through :meth:`on_trade`.
         """
-        all_trades: list[dict[str, Any]] = []
-        page_token: str | None = None
-        params_base: dict[str, Any] = {
-            "start": start.isoformat(),
-            "limit": min(int(limit), 10_000),
-            "feed": feed,
-        }
-        if end is not None:
-            params_base["end"] = end.isoformat()
-        while True:
-            params = dict(params_base)
-            if page_token:
-                params["page_token"] = page_token
-            data = self._get(f"/v2/stocks/{symbol}/trades", params)
-            trades = data.get("trades") or []
-            all_trades.extend(trades)
-            page_token = data.get("next_page_token")
-            if not page_token:
-                break
-        return all_trades
-
-    # ── Order book / NBBO (REST) ─────────────────────────────────────
+        request = StockTradesRequest(
+            symbol_or_symbols=symbol, start=start, end=end, limit=limit, feed=feed
+        )
+        trades = self._data_client.get_stock_trades(request)
+        return [
+            {
+                "t": t.timestamp.isoformat().replace("+00:00", "Z"),
+                "p": float(t.price),
+                "s": float(t.size),
+                "c": list(t.conditions or []),
+            }
+            for t in trades.data.get(symbol, [])
+        ]
 
     def get_order_book(self, symbol: str, depth: int = 20) -> OrderBookSnapshot:
-        """Fetch NBBO (best bid/ask) via ``GET /v2/stocks/{symbol}/quotes/latest``.
-
-        Alpaca does not expose full L2 depth -- only the National Best
-        Bid and Offer.  ``bids`` and ``asks`` lists remain empty.
-        """
-        data = self._get(f"/v2/stocks/{symbol}/quotes/latest")
-        quote = data.get("quote", data)
+        """Fetch NBBO. Alpaca exposes no L2 depth, so the lists stay empty."""
+        request = StockLatestQuoteRequest(symbol_or_symbols=symbol, feed=self._feed)
+        quote = self._data_client.get_stock_latest_quote(request)[symbol]
         return OrderBookSnapshot(
             symbol=symbol,
             timestamp=datetime.now(timezone.utc),
-            best_bid=float(quote.get("bp", 0)),
-            best_bid_qty=float(quote.get("bs", 0)),
-            best_ask=float(quote.get("ap", 0)),
-            best_ask_qty=float(quote.get("as", 0)),
+            best_bid=float(quote.bid_price),
+            best_bid_qty=float(quote.bid_size),
+            best_ask=float(quote.ask_price),
+            best_ask_qty=float(quote.ask_size),
         )
 
     # ── WebSocket streaming ──────────────────────────────────────────
