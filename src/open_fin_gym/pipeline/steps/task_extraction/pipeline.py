@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from open_fin_gym.pipeline.config import Scope
 from open_fin_gym.pipeline.db.tables import (
+    CURATED_TASK_TYPES,
     Chunk,
     Paper,
     TaskCandidate,
@@ -56,7 +57,8 @@ class TaskExtractor:
         output_path.mkdir(exist_ok=True)
 
         for scope in scopes:
-            self.extract_scope(scope, output_path)
+            if scope.task_type not in CURATED_TASK_TYPES:
+                self.extract_scope(scope, output_path)
 
     def extract_scope(self, scope: Scope, output_path: Path) -> None:
         """
