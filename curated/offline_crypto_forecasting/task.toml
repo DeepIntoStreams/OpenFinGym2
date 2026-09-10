@@ -1,0 +1,31 @@
+schema_version = "1.4"
+
+# Collected from the broker sidecar so the trial keeps the episode ledger
+artifacts = [{ source = "/ledger/episode.jsonl", service = "broker" }]
+
+[task]
+name = "openfingym/offline_crypto_forecasting"
+version = "1.0.0"
+description = "Batch forecasting over historical crypto bars."
+authors = []
+keywords = ["offline", "forecasting", "crypto"]
+
+[metadata]
+family = "offline_forecasting"
+category = "machine-learning"
+difficulty_explanation = "Requires acting on crypto perpetual pairs on Binance without look-ahead."
+
+[verifier]
+environment_mode = "shared"
+timeout_sec = 600.0
+
+[agent]
+timeout_sec = 1800.0
+
+[environment]
+network_mode = "allowlist"
+allowed_hosts = ["api.binance.com", "stream.binance.com"]
+build_timeout_sec = 900.0
+os = "linux"
+cpus = 2
+memory_mb = 4096
