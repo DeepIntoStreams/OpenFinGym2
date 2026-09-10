@@ -113,7 +113,9 @@ class PolymarketProvider:
     def _fetch_market_by_condition_id(self, symbol: str) -> dict[str, Any] | None:
         """Fetch and cache a single market by its condition id."""
         try:
-            page = self._client.list_markets(condition_ids=[symbol], page_size=1)
+            page = self._client.list_markets(
+                condition_ids=[symbol], include_tag=True, page_size=1
+            )
             market = next(page.iter_items(), None)
         except PolymarketError as exc:
             logger.warning("Polymarket fetch failed for %s: %s", symbol, exc)
@@ -262,7 +264,13 @@ class PolymarketProvider:
         now = datetime.now(timezone.utc)
         win_min_h = filters.get("resolution_window_hours_min")
         win_max_h = filters.get("resolution_window_hours_max")
-        server: dict[str, Any] = {"closed": False, "page_size": _DISCOVERY_PAGE_SIZE}
+        server: dict[str, Any] = {
+            "closed": False,
+            # Tags only come back when explicitly requested, and the
+            # observation space advertises them to the agent.
+            "include_tag": True,
+            "page_size": _DISCOVERY_PAGE_SIZE,
+        }
         if win_min_h is not None:
             server["end_date_min"] = now + timedelta(hours=float(win_min_h))
         if win_max_h is not None:
