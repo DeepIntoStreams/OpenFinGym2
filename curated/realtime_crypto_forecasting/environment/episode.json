@@ -1,6 +1,7 @@
 {
   "kind": "realtime_crypto_forecasting",
   "config": {
+    "db_path": "/ledger/predictions.db",
     "symbols": [
       "BTCUSDT",
       "ETHUSDT",
