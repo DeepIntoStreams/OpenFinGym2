@@ -1,7 +1,12 @@
 schema_version = "1.4"
 
 # Collected from the broker sidecar so the trial keeps the episode ledger
-artifacts = [{ source = "/ledger/episode.jsonl", service = "broker" }]
+artifacts = [
+  { source = "/ledger/episode.jsonl", service = "broker" },
+  # Deferred scoring reads the pending predictions back out of this
+  # ledger once each horizon closes, so it has to leave the trial.
+  { source = "/ledger/predictions.db", service = "broker" },
+]
 
 [task]
 name = "openfingym/realtime_crypto_forecasting"
