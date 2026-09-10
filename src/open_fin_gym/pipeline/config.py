@@ -4,7 +4,7 @@ Pipeline configuration classes
 
 from dataclasses import dataclass, field
 
-from open_fin_gym.pipeline.db.tables import TaskType
+from open_fin_gym.pipeline.db.tables import CURATED_TASK_TYPES, TaskType
 
 from .steps.judge.config import JudgeConfig
 from .steps.retrieval.config import RetrievalConfig
@@ -13,6 +13,7 @@ from .steps.task_critic.config import TaskCriticConfig
 from .steps.task_export.config import TaskExportConfig
 from .steps.task_extraction.config import TaskExtractionConfig
 from .steps.task_generator.config import TaskGenerationConfig
+from .steps.task_routing.config import TaskRoutingConfig
 from .task_types import ForecastingParams, GenerationParams, TaskTypeParams
 
 
@@ -21,7 +22,9 @@ class Scope:
     id: str
     name: str
     task_type: TaskType
-    task_params: TaskTypeParams = field(init=False)
+    # Curated task types are routed onto a bundle rather than generated,
+    # so they carry no generation parameters.
+    task_params: TaskTypeParams | None = field(init=False)
     description: str
     enabled: bool = True
     queries: list[str] = field(default_factory=list)
@@ -33,6 +36,8 @@ class Scope:
             self.task_params = ForecastingParams
         elif self.task_type == TaskType.GENERATION:
             self.task_params = GenerationParams
+        elif self.task_type in CURATED_TASK_TYPES:
+            self.task_params = None
         else:
             raise ValueError(f"Unrecognised task-type {self.task_type}")
 
@@ -57,6 +62,7 @@ class PipelineConfig:
     judge: JudgeConfig
     task_extractor: TaskExtractionConfig
     task_critic: TaskCriticConfig
+    task_router: TaskRoutingConfig
     task_generator: TaskGenerationConfig
     task_exporter: TaskExportConfig
     scopes: list[Scope]
