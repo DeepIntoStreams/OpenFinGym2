@@ -1,39 +1,34 @@
-"""Polymarket Gamma + CLOB data provider (event-resolution markets).
+"""Polymarket data provider (event-resolution prediction markets).
 
-Polymarket exposes binary YES/NO prediction markets with a free
-public REST API (no key required for read endpoints). This provider
-implements the :class:`DataProvider` and :class:`EventDataProvider`
-protocols so polymarket plugs into the same realtime ledger / resolver
-machinery that crypto-forecasting uses.
+Polymarket exposes binary YES/NO prediction markets through a free
+public API. This provider implements the :class:`DataProvider` and
+:class:`EventDataProvider` protocols so polymarket plugs into the same
+realtime ledger / resolver machinery that crypto-forecasting uses.
 
-Two upstream endpoints:
-
-- **Gamma API** (``gamma-api.polymarket.com``) — discover active markets
-  and read per-market metadata (question, resolution criteria, end date,
-  current YES/NO prices, orderbook snapshot, volume, tags).
-- **CLOB API** (``clob.polymarket.com``) — historical YES-side price
-  bars via ``/prices-history``.
+All upstream access goes through the official ``polymarket`` SDK's
+:class:`PublicClient`, which covers both backends we need — market
+discovery and metadata (Gamma) and historical YES-side prices (CLOB) —
+and returns typed models rather than raw JSON.
 
 Symbol convention: a polymarket "symbol" is the market's
-``conditionId`` (a ``0x…`` hex hash). Each condition has TWO CLOB
-token IDs (one per outcome); we always use the YES side
-(``clobTokenIds[0]``) for price queries.
+``condition_id`` (a ``0x…`` hex hash). Each condition has two CLOB
+token ids, one per outcome; we always use the YES side for price
+queries.
 
-Resolution semantics: a resolved market exposes its outcome via
-``outcomePrices`` — ``["1","0"]`` = YES, ``["0","1"]`` = NO,
-``["0.5","0.5"]`` = ambiguous (UMA dispute fallback). The resolver
-treats ``0.5`` outcomes as unscoreable and drops them.
+Resolution semantics: a resolved market prices its outcomes at
+``1``/``0`` for a decided market and ``0.5``/``0.5`` for an ambiguous
+one (the UMA dispute fallback). The resolver treats ``0.5`` outcomes as
+unscoreable and drops them.
 """
 
 from __future__ import annotations
 
-import json as _json
 import logging
-import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-import requests
+from polymarket import PublicClient
+from polymarket.errors import PolymarketError
 
 from open_fin_gym.realtime.data_providers.base import (
     MarketSnapshot,
@@ -42,165 +37,69 @@ from open_fin_gym.realtime.data_providers.base import (
 
 logger = logging.getLogger(__name__)
 
-
-# CLOB /prices-history accepts a discrete `interval` enum OR a `fidelity`
-# (minutes per bucket). For arbitrary user intervals, we map common
-# ones to the enum where possible and fall back to fidelity.
-_INTERVAL_TO_CLOB_ENUM: dict[str, str] = {
-    "1h": "1h",
-    "6h": "6h",
-    "1d": "1d",
-    "1w": "1w",
-}
-
-# Default rate limit: CLOB documents 10 req/sec (600/min) for unauthed
-# read endpoints; Gamma documents none. Stay conservative at 2 req/sec
-# (120/min) so a single session can drive both endpoints without hitting
-# combined limits.
-_DEFAULT_RATE_LIMIT_PER_MIN = 120
-
-# Polymarket's batched condition_ids query supports many ids per request;
-# we cap submission-time batches at 50 to keep individual requests small.
-_MAX_BATCH_CONDITION_IDS = 50
+# Discovery pages through markets lazily and stops once the caller's cap
+# is met, so a large page size only means fewer round trips.
+_DISCOVERY_PAGE_SIZE = 500
 
 
 class PolymarketProvider:
-    """Market data + event outcomes from the Polymarket Gamma + CLOB APIs.
+    """Market data + event outcomes from the Polymarket public API.
 
     Caching:
-        - ``_market_cache`` stores the full discovery payload for any
-          symbol seen via ``discover_active_markets`` or fetched on
-          demand by ``get_market_metadata``.
-        - ``_clob_token_cache`` stores the YES-side ``clob_token_id`` per
-          symbol so ``get_price_at`` / ``get_bars`` can avoid re-fetching
-          the parent market record on every price query.
+        - ``_market_cache`` stores the full payload for any symbol seen
+          via ``discover_active_markets`` or fetched on demand by
+          ``get_market_metadata``.
+        - ``_clob_token_cache`` stores the YES-side token id per symbol
+          so ``get_price_at`` / ``get_bars`` can avoid re-fetching the
+          parent market record on every price query.
     """
 
     name = "polymarket"
 
-    def __init__(
-        self,
-        gamma_base: str = "https://gamma-api.polymarket.com",
-        clob_base: str = "https://clob.polymarket.com",
-        rate_limit_per_min: int = _DEFAULT_RATE_LIMIT_PER_MIN,
-        session: requests.Session | None = None,
-    ) -> None:
-        self._gamma_base = gamma_base.rstrip("/")
-        self._clob_base = clob_base.rstrip("/")
-        self._session = session or requests.Session()
-        self._min_interval = 60.0 / max(rate_limit_per_min, 1)
-        self._last_request: float = 0.0
+    def __init__(self, client: PublicClient | None = None) -> None:
+        self._client = client or PublicClient()
         self._market_cache: dict[str, dict[str, Any]] = {}
         self._clob_token_cache: dict[str, str] = {}
-
-    # ── Internal HTTP ──────────────────────────────────────────────────
-
-    def _throttle(self) -> None:
-        elapsed = time.monotonic() - self._last_request
-        if elapsed < self._min_interval:
-            time.sleep(self._min_interval - elapsed)
-        self._last_request = time.monotonic()
-
-    def _get(self, base: str, path: str, params: dict[str, Any] | None = None) -> Any:
-        self._throttle()
-        url = f"{base}{path}"
-        resp = self._session.get(url, params=params, timeout=15)
-        resp.raise_for_status()
-        return resp.json()
-
-    def _get_gamma(self, path: str, params: dict[str, Any] | None = None) -> Any:
-        return self._get(self._gamma_base, path, params)
-
-    def _get_clob(self, path: str, params: dict[str, Any] | None = None) -> Any:
-        return self._get(self._clob_base, path, params)
 
     # ── Market record helpers ──────────────────────────────────────────
 
     @staticmethod
-    def _parse_string_array(value: Any) -> list[Any]:
-        """Parse a Gamma field that may be a JSON-encoded string array.
-
-        Gamma returns ``outcomes``, ``outcomePrices``, ``clobTokenIds``
-        as JSON-encoded strings (e.g. ``'["Yes","No"]'``) rather than
-        native arrays. Some clients see them as already-parsed lists.
-        Handle both shapes uniformly.
-        """
-        if value is None:
-            return []
-        if isinstance(value, list):
-            return value
-        if isinstance(value, str):
-            try:
-                parsed = _json.loads(value)
-                if isinstance(parsed, list):
-                    return parsed
-            except (ValueError, TypeError):
-                pass
-        return []
-
-    @classmethod
-    def _market_to_snapshot_payload(cls, raw: dict[str, Any]) -> dict[str, Any]:
-        """Normalise a raw Gamma market record into our payload shape.
+    def _to_payload(market: Any) -> dict[str, Any]:
+        """Normalise an SDK market model into our payload shape.
 
         The returned dict is what ``discover_active_markets`` yields and
         what ``get_market_metadata`` caches. Keys are stable across
         callers (handler observation, ledger writes, resolver scoring).
         """
-        outcomes = cls._parse_string_array(raw.get("outcomes"))
-        outcome_prices_raw = cls._parse_string_array(raw.get("outcomePrices"))
-        outcome_prices: list[float] = []
-        for p in outcome_prices_raw:
-            try:
-                outcome_prices.append(float(p))
-            except (ValueError, TypeError):
-                outcome_prices.append(float("nan"))
-        clob_token_ids = [str(t) for t in cls._parse_string_array(raw.get("clobTokenIds"))]
-
-        # Resolution timestamp.
-        #
-        # Polymarket's field naming is the OPPOSITE of what the suffix
-        # suggests: the wire ``endDate`` carries the full ISO timestamp
-        # (e.g. ``"2026-05-11T19:00:00Z"``) and the wire ``endDateIso``
-        # carries a date-only string (e.g. ``"2026-05-11"``). We prefer
-        # ``endDate`` so callers get the actual market resolution time,
-        # not midnight of the resolution day. ``endDateIso`` is the
-        # fallback (only used if ``endDate`` is missing).
-        end_value = raw.get("endDate") or raw.get("endDateIso")
-        resolution_at: datetime | None = None
-        if end_value:
-            try:
-                # Python's fromisoformat in 3.11+ handles 'Z' suffix; for
-                # 3.10 we replace 'Z' with '+00:00'.
-                resolution_at = datetime.fromisoformat(str(end_value).replace("Z", "+00:00"))
-                if resolution_at.tzinfo is None:
-                    resolution_at = resolution_at.replace(tzinfo=timezone.utc)
-            except ValueError:
-                resolution_at = None
-
-        current_price = outcome_prices[0] if outcome_prices else float("nan")
-
+        yes, no = market.outcomes.yes, market.outcomes.no
+        state, prices, metrics = market.state, market.prices, market.metrics
+        outcome_prices = [_f(yes.price), _f(no.price)]
+        current_price = outcome_prices[0]
         return {
-            "symbol": str(raw.get("conditionId") or ""),
-            "question": str(raw.get("question") or ""),
-            "description": str(raw.get("description") or ""),
-            "resolution_at": resolution_at,
-            "current_price": current_price,
-            "outcomes": outcomes,
+            "symbol": str(market.condition_id or ""),
+            "question": str(market.question or ""),
+            "description": str(market.description or ""),
+            "resolution_at": state.end_date,
+            "current_price": float("nan") if current_price is None else current_price,
+            "outcomes": [yes.label, no.label],
             "outcome_prices": outcome_prices,
-            "clob_token_ids": clob_token_ids,
-            "best_bid": _safe_float(raw.get("bestBid")),
-            "best_ask": _safe_float(raw.get("bestAsk")),
-            "spread": _safe_float(raw.get("spread")),
-            "volume": _safe_float(raw.get("volumeNum")) or _safe_float(raw.get("volume")),
-            "volume_24h": _safe_float(raw.get("volume24hr")),
-            "liquidity": _safe_float(raw.get("liquidityNum")) or _safe_float(raw.get("liquidity")),
-            "closed": bool(raw.get("closed", False)),
-            "active": bool(raw.get("active", True)),
-            "uma_resolution_status": raw.get("umaResolutionStatus"),
-            "tags": _coerce_str_list(raw.get("tags")),
-            "categories": _coerce_str_list(raw.get("categories")),
-            "slug": str(raw.get("slug") or ""),
-            "raw": raw,  # full record for diagnostics
+            "clob_token_ids": [str(yes.token_id), str(no.token_id)],
+            "best_bid": _f(prices.best_bid),
+            "best_ask": _f(prices.best_ask),
+            "spread": _f(prices.spread),
+            "volume": _f(metrics.volume_num) or _f(metrics.volume),
+            "volume_24h": _f(metrics.volume_24hr),
+            "liquidity": _f(metrics.liquidity_num) or _f(metrics.liquidity),
+            "closed": bool(state.closed),
+            "active": bool(state.active),
+            "uma_resolution_status": market.resolution.uma_resolution_status,
+            "tags": [t.label for t in (market.tags or ()) if t.label],
+            "categories": [market.category] if market.category else [],
+            "slug": str(market.slug or ""),
+            # Full record for diagnostics. ``mode="json"`` keeps the
+            # payload serialisable — the universe is handed to the agent
+            # as JSON, and the model holds Decimals and datetimes.
+            "raw": market.model_dump(mode="json"),
         }
 
     def _cache_market(self, payload: dict[str, Any]) -> None:
@@ -212,15 +111,16 @@ class PolymarketProvider:
             self._clob_token_cache[symbol] = payload["clob_token_ids"][0]
 
     def _fetch_market_by_condition_id(self, symbol: str) -> dict[str, Any] | None:
-        """Fetch and cache a single market by its conditionId."""
+        """Fetch and cache a single market by its condition id."""
         try:
-            data = self._get_gamma("/markets", {"condition_ids": symbol, "limit": 1})
-        except requests.HTTPError as exc:
-            logger.warning("Gamma fetch failed for %s: %s", symbol, exc)
+            page = self._client.list_markets(condition_ids=[symbol], page_size=1)
+            market = next(page.iter_items(), None)
+        except PolymarketError as exc:
+            logger.warning("Polymarket fetch failed for %s: %s", symbol, exc)
             return None
-        if not isinstance(data, list) or not data:
+        if market is None:
             return None
-        payload = self._market_to_snapshot_payload(data[0])
+        payload = self._to_payload(market)
         self._cache_market(payload)
         return payload
 
@@ -237,6 +137,24 @@ class PolymarketProvider:
             return fetched["clob_token_ids"][0]
         return None
 
+    def _price_history(
+        self, symbol: str, start: datetime, end: datetime, bucket_seconds: int
+    ) -> list[Any]:
+        """Return YES-side price points for *symbol* over [start, end)."""
+        token = self._get_yes_clob_token(symbol)
+        if token is None:
+            raise ValueError(
+                f"No CLOB token id known for {symbol}; "
+                "discover_active_markets or fetch the market first."
+            )
+        page = self._client.list_price_history(
+            asset_id=token,
+            start=_utc(start),
+            end=_utc(end),
+            bucket_seconds=bucket_seconds,
+        )
+        return list(page.iter_items())
+
     # ── DataProvider interface ─────────────────────────────────────────
 
     def get_current_price(self, symbol: str) -> MarketSnapshot:
@@ -248,10 +166,9 @@ class PolymarketProvider:
         payload = self._market_cache.get(symbol) or self._fetch_market_by_condition_id(symbol)
         if payload is None:
             raise ValueError(f"No polymarket market found for {symbol}")
-        ts = datetime.now(timezone.utc)
         return MarketSnapshot(
             symbol=symbol,
-            timestamp=ts,
+            timestamp=datetime.now(timezone.utc),
             price=float(payload["current_price"]),
             extra={
                 "best_bid": payload["best_bid"],
@@ -268,41 +185,24 @@ class PolymarketProvider:
     ) -> MarketSnapshot:
         """Return the YES-side price closest to timestamp *at*.
 
-        Uses CLOB ``/prices-history`` with a tight ±1h bracket and
-        picks the bar closest to *at*. ``interval`` is accepted for
+        Reads a tight ±1h bracket at 1-minute granularity and picks the
+        point closest to *at*. ``interval`` is accepted for
         :class:`DataProvider` signature parity but unused — event markets
         resolve through ``get_event_outcome``, not bar-close lookup.
         """
-        token = self._get_yes_clob_token(symbol)
-        if token is None:
-            raise ValueError(
-                f"No CLOB token id known for {symbol}; "
-                "discover_active_markets or fetch the market first."
-            )
-        if at.tzinfo is None:
-            at = at.replace(tzinfo=timezone.utc)
-        start_ts = int((at - timedelta(hours=1)).timestamp())
-        end_ts = int((at + timedelta(hours=1)).timestamp())
-        data = self._get_clob(
-            "/prices-history",
-            {
-                "market": token,
-                "startTs": start_ts,
-                "endTs": end_ts,
-                "fidelity": 1,  # 1-minute granularity
-            },
+        at = _utc(at)
+        points = self._price_history(
+            symbol, at - timedelta(hours=1), at + timedelta(hours=1), 60
         )
-        history = data.get("history") if isinstance(data, dict) else None
-        if not history:
+        if not points:
             raise ValueError(
                 f"No CLOB price history for {symbol} around {at.isoformat()}"
             )
-        target_ts = int(at.timestamp())
-        nearest = min(history, key=lambda h: abs(int(h["t"]) - target_ts))
+        nearest = min(points, key=lambda p: abs(p.timestamp - at))
         return MarketSnapshot(
             symbol=symbol,
-            timestamp=datetime.fromtimestamp(int(nearest["t"]), tz=timezone.utc),
-            price=float(nearest["p"]),
+            timestamp=nearest.timestamp,
+            price=float(nearest.price),
         )
 
     def get_bars(
@@ -313,48 +213,18 @@ class PolymarketProvider:
         end: datetime,
     ) -> list[MarketSnapshot]:
         """Return historical YES-side price bars between *start* and *end*."""
-        token = self._get_yes_clob_token(symbol)
-        if token is None:
-            raise ValueError(
-                f"No CLOB token id known for {symbol}; "
-                "discover_active_markets or fetch the market first."
+        points = self._price_history(
+            symbol, start, end, max(60, interval_to_seconds(interval))
+        )
+        return [
+            MarketSnapshot(
+                symbol=symbol,
+                timestamp=p.timestamp,
+                price=float(p.price),
+                close=float(p.price),
             )
-        if start.tzinfo is None:
-            start = start.replace(tzinfo=timezone.utc)
-        if end.tzinfo is None:
-            end = end.replace(tzinfo=timezone.utc)
-        params: dict[str, Any] = {
-            "market": token,
-            "startTs": int(start.timestamp()),
-            "endTs": int(end.timestamp()),
-        }
-        clob_enum = _INTERVAL_TO_CLOB_ENUM.get(interval.lower())
-        if clob_enum:
-            params["interval"] = clob_enum
-        else:
-            # Fall back to fidelity (minutes per bucket).
-            seconds = interval_to_seconds(interval)
-            params["fidelity"] = max(1, seconds // 60)
-        data = self._get_clob("/prices-history", params)
-        history = data.get("history") if isinstance(data, dict) else None
-        if not history:
-            return []
-        bars: list[MarketSnapshot] = []
-        for entry in history:
-            try:
-                ts = datetime.fromtimestamp(int(entry["t"]), tz=timezone.utc)
-                price = float(entry["p"])
-            except (KeyError, ValueError, TypeError):
-                continue
-            bars.append(
-                MarketSnapshot(
-                    symbol=symbol,
-                    timestamp=ts,
-                    price=price,
-                    close=price,
-                )
-            )
-        return bars
+            for p in points
+        ]
 
     # ── EventDataProvider interface ────────────────────────────────────
 
@@ -369,65 +239,40 @@ class PolymarketProvider:
         - ``min_total_volume``: server-side ``volume_num_min``.
         - ``min_liquidity``: server-side ``liquidity_num_min``.
         - ``tag_id``: server-side ``tag_id``.
-        - ``exclude_disputed``: bool — server-side filter on
-          ``uma_resolution_status``.
+        - ``exclude_disputed``: bool — post-filter dropping markets
+          currently in a disputed UMA resolution status. Not a
+          server-side ``uma_resolution_status`` query, because upstream
+          treats that param as an *inclusion* filter (``=resolved``
+          returns only resolved markets, the opposite of what
+          active-market discovery wants).
         - ``min_yes_price`` / ``max_yes_price``: post-filter; default
           0.01 / 0.99 to drop already-resolved-by-consensus markets.
-        - ``min_24h_volume_usd``: post-filter (Gamma has no server-side
-          ``volume24hr_min``).
-        - ``min_orderbook_depth_usd``: post-filter via best_bid * size
-          (approximate; orderbook depth not in /markets payload, uses
-          spread proxy when unavailable).
+        - ``min_24h_volume_usd``: post-filter (no server-side equivalent).
+        - ``min_orderbook_depth_usd``: post-filter via liquidity, falling
+          back to a spread sanity check when liquidity is unavailable.
         - ``categories``: post-filter; empty list = all categories.
-        - ``binary_only``: bool — post-filter, only markets with
-          exactly two outcomes (YES/NO).
+        - ``binary_only``: bool — post-filter, only markets with exactly
+          two outcomes (YES/NO).
         - ``max_markets_per_trial``: cap applied after all filters.
 
-        Returns a list of market payload dicts (see
-        :meth:`_market_to_snapshot_payload` for fields). Each is also
-        cached for later metadata / price queries.
+        Returns a list of market payload dicts (see :meth:`_to_payload`
+        for fields). Each is also cached for later metadata / price
+        queries.
         """
-        # Server-side params
-        params: dict[str, Any] = {
-            "closed": "false",
-            "limit": 500,  # generous upper bound; we'll truncate after post-filters
-        }
         now = datetime.now(timezone.utc)
         win_min_h = filters.get("resolution_window_hours_min")
         win_max_h = filters.get("resolution_window_hours_max")
+        server: dict[str, Any] = {"closed": False, "page_size": _DISCOVERY_PAGE_SIZE}
         if win_min_h is not None:
-            params["end_date_min"] = (
-                now + timedelta(hours=float(win_min_h))
-            ).isoformat()
+            server["end_date_min"] = now + timedelta(hours=float(win_min_h))
         if win_max_h is not None:
-            params["end_date_max"] = (
-                now + timedelta(hours=float(win_max_h))
-            ).isoformat()
-        min_total_volume = filters.get("min_total_volume")
-        if min_total_volume is not None:
-            params["volume_num_min"] = float(min_total_volume)
-        min_liquidity = filters.get("min_liquidity")
-        if min_liquidity is not None:
-            params["liquidity_num_min"] = float(min_liquidity)
-        tag_id = filters.get("tag_id")
-        if tag_id is not None:
-            params["tag_id"] = int(tag_id)
-        # ``exclude_disputed`` is applied as a post-filter (see below) —
-        # NOT a server-side ``uma_resolution_status`` query, because the
-        # Gamma API treats that param as an inclusion filter (e.g.
-        # ``=resolved`` returns ONLY resolved markets, the opposite of
-        # what an active-market discovery wants). Most active markets
-        # have ``umaResolutionStatus`` empty / null until they enter
-        # the resolution lifecycle, so the post-filter just drops any
-        # market currently sitting in a "disputed" status.
-
-        try:
-            raw_list = self._get_gamma("/markets", params)
-        except requests.HTTPError as exc:
-            logger.warning("Gamma /markets fetch failed: %s", exc)
-            return []
-        if not isinstance(raw_list, list):
-            return []
+            server["end_date_max"] = now + timedelta(hours=float(win_max_h))
+        if filters.get("min_total_volume") is not None:
+            server["volume_num_min"] = float(filters["min_total_volume"])
+        if filters.get("min_liquidity") is not None:
+            server["liquidity_num_min"] = float(filters["min_liquidity"])
+        if filters.get("tag_id") is not None:
+            server["tag_id"] = int(filters["tag_id"])
 
         # Post-filters
         min_yes = float(filters.get("min_yes_price", 0.01))
@@ -441,70 +286,75 @@ class PolymarketProvider:
         exclude_disputed = bool(filters.get("exclude_disputed", True))
         cap = int(filters.get("max_markets_per_trial", 50))
 
-        # Defense-in-depth on the resolution window: even though Gamma's
-        # ``end_date_min`` / ``end_date_max`` filter the server-side
-        # ``endDate`` correctly, a market can still slip through when
-        # ``closed=false`` but the event time is already past (UMA
-        # dispute window before resolution finalises). We re-check the
-        # parsed ``resolution_at`` against the requested window plus a
-        # 60s skew tolerance for client/server clock drift.
-        _SKEW = timedelta(seconds=60)
-        win_min_dt: datetime | None = None
-        win_max_dt: datetime | None = None
-        if win_min_h is not None:
-            win_min_dt = now + timedelta(hours=float(win_min_h)) - _SKEW
-        if win_max_h is not None:
-            win_max_dt = now + timedelta(hours=float(win_max_h)) + _SKEW
+        # Defense-in-depth on the resolution window: even though the
+        # server filters ``end_date`` correctly, a market can still slip
+        # through when it is not yet closed but the event time has passed
+        # (the UMA dispute window before resolution finalises). We
+        # re-check the parsed ``resolution_at`` against the requested
+        # window plus a 60s tolerance for client/server clock drift.
+        skew = timedelta(seconds=60)
+        win_min_dt = now + timedelta(hours=float(win_min_h)) - skew if win_min_h is not None else None
+        win_max_dt = now + timedelta(hours=float(win_max_h)) + skew if win_max_h is not None else None
+
+        try:
+            markets = self._client.list_markets(**server).iter_items()
+        except PolymarketError as exc:
+            logger.warning("Polymarket market discovery failed: %s", exc)
+            return []
 
         kept: list[dict[str, Any]] = []
-        for raw in raw_list:
-            payload = self._market_to_snapshot_payload(raw)
-            if payload["closed"]:
-                continue
-            if not payload["active"]:
-                continue
-            if exclude_disputed and (
-                str(payload.get("uma_resolution_status") or "").lower() == "disputed"
-            ):
-                continue
-            if binary_only and len(payload["outcomes"]) != 2:
-                continue
-            res_at = payload["resolution_at"]
-            if res_at is None:
-                continue
-            if win_min_dt is not None and res_at < win_min_dt:
-                continue
-            if win_max_dt is not None and res_at > win_max_dt:
-                continue
-            cp = payload["current_price"]
-            if cp != cp:  # NaN check
-                continue
-            if cp < min_yes or cp > max_yes:
-                continue
-            if min_24h_v is not None and (payload["volume_24h"] or 0.0) < min_24h_v:
-                continue
-            if min_depth_v is not None:
-                # Orderbook depth proxy: use liquidity if available; otherwise
-                # require spread to be < 0.05 (5 cents) as a liquidity sanity check.
-                liq = payload["liquidity"] or 0.0
-                if liq and liq < min_depth_v:
+        try:
+            for market in markets:
+                payload = self._to_payload(market)
+                if payload["closed"] or not payload["active"]:
                     continue
-                if not liq:
-                    spread = payload["spread"]
-                    if spread is None or spread > 0.05:
+                if exclude_disputed and (
+                    str(payload["uma_resolution_status"] or "").lower() == "disputed"
+                ):
+                    continue
+                if binary_only and len(payload["outcomes"]) != 2:
+                    continue
+                res_at = payload["resolution_at"]
+                if res_at is None:
+                    continue
+                if win_min_dt is not None and res_at < win_min_dt:
+                    continue
+                if win_max_dt is not None and res_at > win_max_dt:
+                    continue
+                cp = payload["current_price"]
+                if cp != cp:  # NaN check
+                    continue
+                if cp < min_yes or cp > max_yes:
+                    continue
+                if min_24h_v is not None and (payload["volume_24h"] or 0.0) < min_24h_v:
+                    continue
+                if min_depth_v is not None:
+                    # Orderbook depth proxy: use liquidity if available;
+                    # otherwise require a spread under 5 cents as a
+                    # liquidity sanity check.
+                    liq = payload["liquidity"] or 0.0
+                    if liq and liq < min_depth_v:
                         continue
-            if categories_filter:
-                cats = [c.lower() for c in payload["categories"]]
-                if not any(c in cats for c in categories_filter):
+                    if not liq:
+                        spread = payload["spread"]
+                        if spread is None or spread > 0.05:
+                            continue
+                if categories_filter:
+                    cats = [c.lower() for c in payload["categories"]]
+                    if not any(c in cats for c in categories_filter):
+                        continue
+                if not payload["symbol"]:
                     continue
-            if not payload["symbol"]:
-                continue
-            if not payload["clob_token_ids"]:
-                continue  # can't price-query; skip
-            self._cache_market(payload)
-            kept.append(payload)
-            if len(kept) >= cap:
-                break
+                if not payload["clob_token_ids"]:
+                    continue  # can't price-query; skip
+                self._cache_market(payload)
+                kept.append(payload)
+                if len(kept) >= cap:
+                    break
+        except PolymarketError as exc:
+            logger.warning(
+                "Polymarket discovery stopped after %d markets: %s", len(kept), exc
+            )
         return kept
 
     def get_event_outcome(self, symbol: str) -> float | None:
@@ -515,28 +365,22 @@ class PolymarketProvider:
         the cache with the fresh payload as a side-effect.
         """
         fresh = self._fetch_market_by_condition_id(symbol)
-        if fresh is None:
-            return None
-        if not fresh["closed"]:
+        if fresh is None or not fresh["closed"]:
             return None
         outcome_prices = fresh["outcome_prices"]
-        if not outcome_prices or len(outcome_prices) < 1:
+        yes_price = outcome_prices[0] if outcome_prices else None
+        if yes_price is None or yes_price != yes_price:  # missing or NaN
             return None
-        yes_price = outcome_prices[0]
-        if yes_price != yes_price:  # NaN
-            return None
-        # Snap to discrete outcomes. Polymarket's contract pays in {0, 0.5, 1}
-        # for binary markets after resolution; allow tiny float drift.
-        if abs(yes_price - 1.0) < 1e-6:
-            return 1.0
-        if abs(yes_price - 0.0) < 1e-6:
-            return 0.0
-        if abs(yes_price - 0.5) < 1e-6:
-            return 0.5
-        # If outcomePrices is non-canonical (e.g. mid-resolution), treat
-        # as still-pending rather than guessing.
+        # Snap to discrete outcomes. Polymarket's contract pays in
+        # {0, 0.5, 1} for binary markets after resolution; allow tiny
+        # float drift.
+        for target in (1.0, 0.0, 0.5):
+            if abs(yes_price - target) < 1e-6:
+                return target
+        # If the outcome prices are non-canonical (e.g. mid-resolution),
+        # treat as still-pending rather than guessing.
         logger.warning(
-            "Polymarket %s closed but outcomePrices=%s not in {0,0.5,1}; "
+            "Polymarket %s closed but outcome prices=%s not in {0,0.5,1}; "
             "treating as pending",
             symbol,
             outcome_prices,
@@ -557,40 +401,17 @@ class PolymarketProvider:
 # ── Helpers ────────────────────────────────────────────────────────────
 
 
-def _safe_float(value: Any) -> float | None:
-    """Coerce to float; return None on parse failure or None input."""
+def _f(value: Any) -> float | None:
+    """Coerce an SDK Decimal (or None) to float; None on parse failure."""
     if value is None:
         return None
     try:
-        f = float(value)
+        out = float(value)
     except (ValueError, TypeError):
         return None
-    if f != f:  # NaN
-        return None
-    return f
+    return None if out != out else out  # drop NaN
 
 
-def _coerce_str_list(value: Any) -> list[str]:
-    """Best-effort coerce to list[str]; tolerates None / dicts / strings."""
-    if value is None:
-        return []
-    if isinstance(value, str):
-        try:
-            parsed = _json.loads(value)
-            if isinstance(parsed, list):
-                value = parsed
-        except (ValueError, TypeError):
-            return [value]
-    if isinstance(value, list):
-        out: list[str] = []
-        for item in value:
-            if isinstance(item, str):
-                out.append(item)
-            elif isinstance(item, dict):
-                # Tags are sometimes {id, label, slug}; prefer label/slug.
-                for key in ("label", "slug", "name"):
-                    if key in item and isinstance(item[key], str):
-                        out.append(item[key])
-                        break
-        return out
-    return []
+def _utc(moment: datetime) -> datetime:
+    """Return *moment* as an aware UTC datetime."""
+    return moment.replace(tzinfo=timezone.utc) if moment.tzinfo is None else moment

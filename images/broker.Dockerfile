@@ -9,9 +9,11 @@ RUN pip install --no-cache-dir \
     scipy==1.15.3 \
     pydantic \
     requests==2.32.3 \
-    websockets \
-    fastapi \
-    uvicorn
+    websockets==15.0.1 \
+    fastapi==0.141.1 \
+    uvicorn==0.52.4 \
+    alpaca-py==0.44.0 \
+    polymarket-client==0.10.0
 
 WORKDIR /broker
 COPY src/open_fin_gym/realtime/ open_fin_gym/realtime/
