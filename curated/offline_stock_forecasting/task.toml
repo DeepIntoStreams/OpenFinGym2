@@ -1,0 +1,35 @@
+schema_version = "1.4"
+
+# Collected from the broker sidecar so the trial keeps the episode ledger
+artifacts = [{ source = "/ledger/episode.jsonl", service = "broker" }]
+
+[task]
+name = "openfingym/offline_stock_forecasting"
+version = "1.0.0"
+description = "Batch forecasting over historical US equity bars."
+authors = []
+keywords = ["offline", "forecasting", "stock"]
+
+[metadata]
+family = "offline_forecasting"
+category = "machine-learning"
+difficulty_explanation = "Requires acting on US equities without look-ahead."
+
+[verifier]
+environment_mode = "shared"
+timeout_sec = 600.0
+
+[agent]
+timeout_sec = 1800.0
+
+[environment]
+network_mode = "allowlist"
+allowed_hosts = ["data.alpaca.markets", "stream.data.alpaca.markets"]
+build_timeout_sec = 900.0
+os = "linux"
+cpus = 2
+memory_mb = 4096
+
+[environment.env]
+ALPACA_API_KEY = "${ALPACA_API_KEY_ID}"
+ALPACA_SECRET_KEY = "${ALPACA_API_SECRET_KEY}"
