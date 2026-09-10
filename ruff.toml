@@ -1,2 +1,8 @@
 line-length = 88
 target-version = "py312"
+
+# The market and trading stack under realtime/ is kept byte-faithful to the
+# implementation it was taken from, so it is not restyled here.
+extend-exclude = ["src/open_fin_gym/realtime"]
+# pre-commit passes explicit paths, which override exclusions without this.
+force-exclude = true
