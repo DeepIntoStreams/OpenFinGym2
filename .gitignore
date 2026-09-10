@@ -132,3 +132,4 @@ mlartifacts/
 /tasks
 # Generated docs
 /docs/build/
+results/
