@@ -24,15 +24,25 @@ else:
 
 data = call("/features")
 
-# Reference policy: predict the mean of the training targets. The features are
-# derived quantities rather than prices, so carrying one of them forward would
-# be off by orders of magnitude against an absolute-price target.
-targets = data["train_ground_truth"]
-features = data["features"]
+# Reference policy: reference * (1 + drift), the numpy baseline the task
+# instructions name. The target is an absolute price while every feature is
+# scale-free, so the reference close is what fixes the level; drift is the
+# mean per-bar move over the training split. Carrying the reference across
+# unchanged would score well on price error but leaves the direction
+# undefined, since sign(predicted - reference) would be zero everywhere.
+ref_train = data["reference_train"]
+ref_test = data["reference_test"]
+train_target = data["train_ground_truth"]
+
 predictions = {}
-for symbol, series in features.items():
-    y = [float(v) for v in targets[symbol]]
-    predictions[symbol] = [sum(y) / len(y)] * len(series)
+for symbol, test_ref in ref_test.items():
+    moves = [
+        float(t) / float(r) - 1.0
+        for t, r in zip(train_target[symbol], ref_train[symbol])
+        if float(r) != 0.0
+    ]
+    drift = sum(moves) / len(moves) if moves else 0.0
+    predictions[symbol] = [float(r) * (1.0 + drift) for r in test_ref]
 
 print(json.dumps(call("/predict", {"predictions": predictions})))
 PY

@@ -157,11 +157,20 @@ def create_app() -> FastAPI:
     # stepping, so it is served through its own pair of endpoints.
     @app.get("/features")
     def features() -> Any:
-        return {
+        payload = {
             "train_features": as_json(task.get_train_features()),
             "train_ground_truth": as_json(task.get_train_ground_truth()),
             "features": as_json(task.get_features()),
         }
+        # The target is an absolute price while every feature is a return
+        # or another scale-free quantity, so without the reference close
+        # there is nothing to anchor the level to and no prediction can be
+        # better than a guess at where the price happens to sit.
+        for name in ("reference_train", "reference_test"):
+            getter = getattr(task, f"get_{name}", None)
+            if getter is not None:
+                payload[name] = as_json(getter())
+        return payload
 
     @app.post("/predict")
     def predict(payload: dict) -> dict:
