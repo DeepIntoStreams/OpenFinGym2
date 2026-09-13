@@ -96,9 +96,8 @@ class PolymarketProvider:
             "tags": [t.label for t in (market.tags or ()) if t.label],
             "categories": [market.category] if market.category else [],
             "slug": str(market.slug or ""),
-            # Full record for diagnostics. ``mode="json"`` keeps the
-            # payload serialisable — the universe is handed to the agent
-            # as JSON, and the model holds Decimals and datetimes.
+            # Full record for diagnostics. ``mode="json"`` because the model
+            # holds Decimals and datetimes and the universe is served as JSON.
             "raw": market.model_dump(mode="json"),
         }
 
@@ -294,12 +293,9 @@ class PolymarketProvider:
         exclude_disputed = bool(filters.get("exclude_disputed", True))
         cap = int(filters.get("max_markets_per_trial", 50))
 
-        # Defense-in-depth on the resolution window: even though the
-        # server filters ``end_date`` correctly, a market can still slip
-        # through when it is not yet closed but the event time has passed
-        # (the UMA dispute window before resolution finalises). We
-        # re-check the parsed ``resolution_at`` against the requested
-        # window plus a 60s tolerance for client/server clock drift.
+        # A market can still be open with its event time already past, during
+        # the UMA dispute window, so re-check the window client-side with a
+        # 60s tolerance for clock drift.
         skew = timedelta(seconds=60)
         win_min_dt = now + timedelta(hours=float(win_min_h)) - skew if win_min_h is not None else None
         win_max_dt = now + timedelta(hours=float(win_max_h)) + skew if win_max_h is not None else None
@@ -337,9 +333,8 @@ class PolymarketProvider:
                 if min_24h_v is not None and (payload["volume_24h"] or 0.0) < min_24h_v:
                     continue
                 if min_depth_v is not None:
-                    # Orderbook depth proxy: use liquidity if available;
-                    # otherwise require a spread under 5 cents as a
-                    # liquidity sanity check.
+                    # Depth proxy: liquidity when known, otherwise a spread
+                    # under 5 cents as a sanity check.
                     liq = payload["liquidity"] or 0.0
                     if liq and liq < min_depth_v:
                         continue
@@ -379,9 +374,7 @@ class PolymarketProvider:
         yes_price = outcome_prices[0] if outcome_prices else None
         if yes_price is None or yes_price != yes_price:  # missing or NaN
             return None
-        # Snap to discrete outcomes. Polymarket's contract pays in
-        # {0, 0.5, 1} for binary markets after resolution; allow tiny
-        # float drift.
+        # Resolved binary markets pay in {0, 0.5, 1}; allow float drift.
         for target in (1.0, 0.0, 0.5):
             if abs(yes_price - target) < 1e-6:
                 return target
