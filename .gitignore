@@ -133,3 +133,6 @@ mlartifacts/
 # Generated docs
 /docs/build/
 results/
+
+# Local working note, never committed
+HANDOVER_TRADING_TASKS.md
