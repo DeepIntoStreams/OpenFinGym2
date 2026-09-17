@@ -7,10 +7,13 @@ import numpy as np
 class TradingReward(ABC):
     """Compute a reward from a list of (prediction, ground_truth) pairs.
 
-    Subclasses must implement :meth:`compute_per_trade`.  The default
-    :meth:`compute_aggregate` returns the mean of per-trade values;
-    override it for metrics that are only meaningful in aggregate
-    (e.g. Sharpe ratio).
+    Subclasses implement :meth:`compute_per_trade`.
+
+    Args:
+        prediction: ``direction`` ("long"/"short"), and optionally
+            ``predicted_price``, ``predicted_return`` or ``confidence``.
+        ground_truth: ``actual_return``, plus ``entry_price`` and
+            ``exit_price`` for the price-error metrics.
     """
 
     def __init__(self, name: str) -> None:
@@ -40,17 +43,7 @@ class TradingReward(ABC):
         return f"{type(self).__name__}(name={self.name!r})"
 
 
-# ---------------------------------------------------------------------------
-# Concrete trading rewards
-#
-# Expected prediction dict keys:
-#     direction        str   "long" | "short"
-#     predicted_return float (optional) magnitude estimate
-#     confidence       float (optional) 0-1
-#
-# Expected ground_truth dict keys:
-#     actual_return    float realised return over the horizon
-# ---------------------------------------------------------------------------
+# ── Concrete trading rewards ───────────────────────────────────────────────
 
 
 def _pnl_list(predictions: list[dict], ground_truths: list[dict]) -> list[float]:
@@ -122,14 +115,7 @@ class PnL(TradingReward):
 
 
 class ReturnMAE(TradingReward):
-    """Mean absolute error between predicted and actual return magnitude.
-
-    Reads ``predicted_return`` directly when supplied; falls back to
-    deriving it from ``predicted_price`` and ``entry_price`` so that
-    price-only submissions also score on this metric. Legacy direction-
-    only submissions (no return, no price) keep their historical 0.0
-    fallback.
-    """
+    """Mean absolute error between predicted and actual return magnitude."""
 
     def __init__(self) -> None:
         super().__init__("return_mae")
@@ -249,27 +235,8 @@ class QuantityPnL(TradingReward):
         return out
 
 
-# ---------------------------------------------------------------------------
-# Price- and return-error rewards for the realtime forecasting overhaul.
-#
-# These classes reframe forecasting as price prediction (predicted_price ↔
-# exit_price) while keeping return-shape metrics on the same data via the
-# (predicted_price, entry_price) → predicted_return derivation. They all
-# return NaN per-trade when the submission lacks the required fields, and
-# aggregate via NaN-skip mean (or sqrt-of-mean / closed-form for series-
-# level metrics) so back-compat direction-only submissions don't poison
-# the panel.
-#
-# Expected prediction dict keys (any subset; metrics gracefully NaN out
-# when their inputs are missing):
-#     predicted_price  float  (primary, absolute future price)
-#     direction        str    "long" | "short" (used by other classes)
-#
-# Expected ground_truth dict keys:
-#     entry_price   float  server-captured at submit
-#     exit_price    float  server-captured at resolve
-#     actual_return float  (exit_price - entry_price) / entry_price
-# ---------------------------------------------------------------------------
+# ── Price and return error rewards ─────────────────────────────────────────
+# Missing inputs give NaN per trade and aggregate with a NaN-skip mean.
 
 
 class PriceMSE(TradingReward):
@@ -304,11 +271,8 @@ class PriceMSE(TradingReward):
 class PriceRMSE(TradingReward):
     """Root-mean-squared error on price.
 
-    Per-trade returns the squared error so the aggregate can compute
-    ``sqrt(mean(squared_errors))`` over the full session. The per-trade
-    list is intentionally not the per-trade RMSE (which would be the
-    abs error and equal to PriceMAE) — the aggregation is what makes
-    this class meaningful.
+    The per-trade list holds squared errors, since the aggregation is what makes
+    the metric meaningful.
     """
 
     def __init__(self) -> None:
@@ -362,12 +326,7 @@ class PriceMAE(TradingReward):
 
 
 class PriceMAPE(TradingReward):
-    """Mean-absolute percentage error on price.
-
-    Scale-free; the only price metric safe for cross-symbol macro
-    aggregation.  NaN when ``exit_price`` is below ``eps`` (avoids divide-
-    by-zero blow-up on rare zero/near-zero-priced assets).
-    """
+    """Mean-absolute percentage error on price."""
 
     def __init__(self, eps: float = 1e-8) -> None:
         super().__init__("price_mape")
@@ -397,14 +356,7 @@ class PriceMAPE(TradingReward):
 
 
 class PriceR2(TradingReward):
-    """Coefficient of determination on (predicted_price, exit_price) pairs.
-
-    Aggregate-only metric: ``compute_per_trade`` returns NaN per element
-    because R² requires the full series. ``compute_aggregate`` rebuilds
-    valid pairs and applies ``1 - SS_res / SS_tot``. Returns NaN when
-    fewer than 2 valid pairs exist or ground truth has zero variance
-    (denominator collapse).
-    """
+    """Coefficient of determination on (predicted_price, exit_price) pairs."""
 
     def __init__(self, eps: float = 1e-8) -> None:
         super().__init__("price_r2")
@@ -477,14 +429,7 @@ class PricePearson(TradingReward):
 
 
 class ReturnMSE(TradingReward):
-    """MSE between predicted and actual return.
-
-    ``predicted_return`` is read directly when supplied; otherwise
-    derived from ``(predicted_price - entry_price) / entry_price`` so
-    price-only submissions still produce a return-error reading.
-    NaN-skip aggregation keeps direction-only submissions from poisoning
-    the panel.
-    """
+    """MSE between predicted and actual return."""
 
     def __init__(self) -> None:
         super().__init__("return_mse")
@@ -556,22 +501,6 @@ ALL_TRADING_REWARDS: list[type[TradingReward]] = [
 ]
 
 
-# ---------------------------------------------------------------------------
-#
-# Sibling base class to ``TradingReward``. Operates on probability
-# predictions (∈ [0, 1]) over discrete binary outcomes (∈ {0, 1}).
-# Ambiguous outcomes (0.5) are dropped upstream in
-# ``ResolverService.score_resolved`` before reaching these classes.
-#
-# Expected prediction dict keys:
-#     predicted_yes_probability  float in [0, 1]
-#
-# Expected ground_truth dict keys:
-#     outcome  float in {0.0, 1.0}  (0.5 dropped before scoring)
-#
-# Same ``compute_aggregate(predictions, ground_truths)`` signature as
-# TradingReward so the resolver's Phase-2 score loop is family-agnostic.
-# ---------------------------------------------------------------------------
 
 
 # Clamp probabilities away from {0, 1} for log-loss to avoid log(0).
@@ -581,10 +510,8 @@ _LOG_LOSS_EPS = 1e-12
 class Loss:
     """Marker base for evaluation rewards.
 
-    Subclasses implement their own ``forward`` returning a scalar — there is no
-    inherited reduction or normalisation. The ``**_unused_legacy`` catch-all
-    absorbs stray kwargs from legacy generated rewards so they do not crash;
-    those values are intentionally not stored.
+    ``**_unused_legacy`` absorbs stray kwargs from older generated rewards and
+    discards them.
     """
 
     def __init__(self, **_unused_legacy: Any) -> None:

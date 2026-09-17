@@ -25,10 +25,8 @@ class MarketSnapshot:
 class OrderBookSnapshot:
     """Level-2 order book or NBBO snapshot.
 
-    Providers that support full depth (e.g. Binance) populate ``bids``/``asks``
-    with a list of ``(price, quantity)`` tuples.  Providers that only have
-    NBBO (e.g. Alpaca) populate ``best_bid``/``best_ask`` and leave the lists
-    empty.
+    Full-depth providers fill ``bids``/``asks``; NBBO-only ones fill
+    ``best_bid``/``best_ask`` and leave the lists empty.
     """
 
     symbol: str
@@ -56,9 +54,7 @@ class OrderBookSnapshot:
         return None
 
 
-# ---------------------------------------------------------------------------
-# Interval parsing
-# ---------------------------------------------------------------------------
+# ── Interval parsing ───────────────────────────────────────────────────────
 
 # Regex: one or more digits followed by a unit letter.
 _INTERVAL_RE = re.compile(r"^(\d+)\s*([mhdwM]|min|hour|day|week|month)$", re.IGNORECASE)
@@ -81,13 +77,10 @@ _UNIT_ALIASES: dict[str, str] = {
 def parse_interval(interval: str) -> tuple[int, str]:
     """Parse a human-friendly interval string into ``(value, unit)``.
 
-    Accepted inputs (case-insensitive except ``M`` for month):
-        ``"1m"``, ``"30min"``, ``"2h"``, ``"4hour"``, ``"1d"``, ``"1day"``,
-        ``"1w"``, ``"1week"``, ``"1M"``, ``"1month"``
+    Accepts forms like ``"30min"``, ``"4hour"`` or ``(4, "h")``.
 
-    Returns e.g. ``(30, "m")``, ``(4, "h")``, ``(1, "d")``.
-
-    Raises :class:`ValueError` if the string cannot be parsed.
+    Raises:
+        ValueError: The interval cannot be parsed.
     """
     match = _INTERVAL_RE.match(interval.strip())
     if not match:
@@ -117,11 +110,10 @@ def to_binance_interval(interval: str) -> str:
 def interval_to_timedelta(interval: str, n_bars: int = 1) -> timedelta:
     """Convert an interval string (× bar count) to a :class:`timedelta`.
 
-    Useful for sizing backfill windows in bar-count terms regardless of
-    the chosen interval — e.g. ``interval_to_timedelta("5m", 60)`` →
-    300-minute window. Months are approximated as 30 days.
+    Months are approximated as 30 days.
 
-    Raises :class:`ValueError` for unparseable intervals.
+    Raises:
+        ValueError: The interval cannot be parsed.
     """
     value, unit = parse_interval(interval)
     total = value * max(int(n_bars), 0)
@@ -141,10 +133,7 @@ def interval_to_timedelta(interval: str, n_bars: int = 1) -> timedelta:
 def interval_to_seconds(interval: str) -> int:
     """Return the number of seconds spanned by one bar at *interval*.
 
-    Used to compare interval coarseness (which is finer / coarser) and
-    to align timestamps to clock-boundary buckets when downsampling.
-    Months are approximated as 30 days, matching
-    :func:`interval_to_timedelta`.
+    Months are approximated as 30 days, matching :func:`interval_to_timedelta`.
     """
     return int(interval_to_timedelta(interval, 1).total_seconds())
 
@@ -154,15 +143,8 @@ def resolve_at_for_horizon(
 ) -> datetime:
     """Close timestamp of the bar ``horizon_bars`` ahead of submission.
 
-    Realtime forecasts target an aligned bar boundary, mirroring offline
-    forecasting's ``close.shift(-N)``: floor ``submitted_at`` onto the
-    ``interval`` grid to find the bar the agent submitted within, advance
-    ``horizon_bars`` whole bars, and return that target bar's **close**
-    time (its open + one interval).
-
-    The returned value is the "resolvable-after" instant stored as
-    ``resolve_at``: the resolver gates on it (the target bar has closed by
-    then) and fetches the target bar by stepping back one ``interval``.
+    Floors ``submitted_at`` onto the interval grid, so the resolver can gate on
+    the target bar having closed.
     """
     seconds = interval_to_seconds(interval)
     if seconds <= 0:
@@ -181,20 +163,7 @@ def downsample_bars(
 ) -> list[MarketSnapshot]:
     """Aggregate ``primary_bars`` into clock-aligned bars at ``target_interval``.
 
-    Each output bar covers ``target_interval`` worth of input bars whose
-    timestamps fall into the same clock-aligned bucket
-    (``floor(epoch / target_seconds) * target_seconds``). OHLCV reduce:
-
-    - ``open``  = first input bar's open (or price if no OHLC)
-    - ``high``  = max over the bucket
-    - ``low``   = min over the bucket
-    - ``close`` = last input bar's close (or price)
-    - ``volume`` = sum
-    - ``timestamp`` = bucket start (the clock-aligned boundary)
-
-    Returns the **last** ``target_bars`` aggregated buckets. The most
-    recent bucket may be a partial (in-progress) target bar if
-    ``primary_bars`` ends mid-target-window.
+    The most recent bucket may be a partial, still-forming bar.
     """
     if not primary_bars or target_bars <= 0:
         return []
@@ -287,42 +256,23 @@ class DataProvider(Protocol):
 class EventDataProvider(DataProvider, Protocol):
     """Extended contract for event-resolution markets (e.g. Polymarket).
 
-    Event-resolution markets differ from continuous-asset markets in
-    three ways the resolver needs to know about:
-
-    1. **Discovery is dynamic.** Active markets come and go (a Polymarket
-       market resolves once and is never reused), so the universe is
-       fetched at trial-setup time via :meth:`discover_active_markets`
-       rather than read from a static ``symbols`` list in ``task.toml``.
-    2. **Resolution returns a discrete outcome**, not a price. The
-       resolver calls :meth:`get_event_outcome` instead of
-       :meth:`get_price_at`. Returns ``None`` while pending, ``0.0`` /
-       ``1.0`` for binary YES/NO, or ``0.5`` for ambiguous (e.g. UMA
-       dispute fallback) — predictions on ``0.5`` outcomes should be
-       dropped from scoring.
-    3. **Per-market metadata is rich** (question text, resolution
-       criteria, end-date, orderbook). :meth:`get_market_metadata`
-       returns the discovery payload for any known symbol so the task
-       can refresh observation fields without re-querying the catalog.
+    Universes are discovered per trial rather than listed statically, and
+    resolution yields a discrete outcome instead of a price.
     """
 
     def discover_active_markets(self, filters: dict[str, Any]) -> list[dict[str, Any]]:
         """Return active markets matching *filters*, each as a dict.
 
-        Filter keys are provider-specific. Each returned dict carries at
-        minimum: ``symbol`` (the provider's stable market identifier
-        used as the ``symbol`` in subsequent calls), ``question``,
-        ``resolution_at`` (timezone-aware datetime), and
-        ``current_price`` (current YES probability in [0, 1]).
+        Filter keys are provider-specific; every dict carries at least ``symbol``,
+        ``question``, ``resolution_at`` and ``current_price``.
         """
         ...
 
     def get_event_outcome(self, symbol: str) -> float | None:
         """Return the resolved outcome for *symbol*, or ``None`` if pending.
 
-        ``0.0`` = NO, ``1.0`` = YES, ``0.5`` = ambiguous (e.g. UMA
-        dispute fallback). Callers should treat ``0.5`` as
-        unscoreable and drop the matching prediction.
+        ``0.0`` is NO, ``1.0`` YES and ``0.5`` ambiguous, which callers should treat
+        as unscoreable.
         """
         ...
 

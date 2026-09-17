@@ -1,11 +1,7 @@
 """MarketDataBuffer -- unified REST backfill + WebSocket real-time data.
 
-Maintains a rolling window of :class:`MarketSnapshot` bars per symbol,
-with timestamp-based deduplication so that REST historical bars and
-WebSocket realtime bars merge seamlessly.
-
-Only used by :class:`RealtimeTradingTask`.  Realtime forecasting and offline
-tasks do not need this component.
+Only realtime trading needs it; realtime forecasting and the offline tasks
+do not.
 """
 
 import asyncio
@@ -64,54 +60,21 @@ class MarketDataBuffer:
         self._order_books: dict[str, OrderBookSnapshot | None] = {
             s: None for s in symbols
         }
-        # High-resolution wall-clock timestamps recorded on every *local*
-        # receipt — used by the realtime-task hot path to decide whether
-        # the WS-fed cache is still fresh enough that the per-step REST
-        # `get_current_price` / `get_order_book` can be skipped. These
-        # are NOT exchange-side event times; they're "when did the buffer
-        # last hear about a value for this symbol", which is what the
-        # staleness gate actually wants to know.
-        # We use ``time.perf_counter()`` rather than ``time.monotonic()``
-        # because on Windows ``time.monotonic()`` is backed by
-        # ``GetTickCount64`` (~16 ms resolution), so two operations in a
-        # tight loop can return identical floats and produce a spurious
-        # zero staleness. ``perf_counter`` uses ``QueryPerformanceCounter``
-        # and resolves to <1 µs.
-        # ``0.0`` is the canonical "never received" sentinel; combined
-        # with ``perf_counter`` being strictly increasing this gives an
-        # effectively-infinite reported staleness on first query.
+        # Local receipt times gating the REST fallback. ``perf_counter`` because
+        # Windows' ``monotonic`` is too coarse; ``0.0`` means never seen.
         self._bar_recv_perf: dict[str, float] = {s: 0.0 for s in symbols}
         self._ob_recv_perf: dict[str, float] = {s: 0.0 for s in symbols}
         self._streaming: bool = False
-        # Per-symbol warmup signal: set the first time the WS pushes a
-        # bar for that symbol. `wait_for_warmup()` blocks until every
-        # symbol's event has fired (or a timeout elapses). Until warmup
-        # completes the hot path may still fall back to REST (for order
-        # book in particular); after warmup the WS is the freshest
-        # source and the REST fallback becomes redundant. Initialised
-        # cleared.
+        # Set on each symbol's first WS bar; until then the hot path may still
+        # fall back to REST.
         self._warmup_events: dict[str, threading.Event] = {
             s: threading.Event() for s in symbols
         }
 
-    # ------------------------------------------------------------------
-    # REST backfill
-    # ------------------------------------------------------------------
+    # ── REST backfill ───────────────────────────────────────────────────
 
     def backfill(self) -> None:
-        """Fetch recent historical bars via REST and populate the buffer.
-
-        The window size is ``backfill_bars × interval`` so the wall-clock
-        duration scales correctly with the bar resolution (a 200-bar
-        backfill at 1m covers 200 minutes, at 1h covers 200 hours, etc.).
-
-        Per-symbol ``get_bars`` calls run in parallel via a transient
-        thread pool. Each symbol's REST call is independent (different
-        endpoint params, different responses); the buffer write happens
-        under ``_lock`` so cross-symbol concurrency is safe. The
-        previously-sequential ``O(N_symbols × RTT)`` wall-clock cost
-        collapses to ``O(RTT)`` for the slowest single fetch.
-        """
+        """Fetch recent historical bars via REST and populate the buffer."""
         if not self._symbols:
             return
         now = datetime.now(timezone.utc)
@@ -129,9 +92,8 @@ class MarketDataBuffer:
             except Exception as exc:
                 return symbol, None, exc
 
-        # Transient pool — backfill runs once per episode, so the
-        # per-call setup cost (~50-200 µs) is negligible compared to
-        # the network savings on multi-symbol tasks.
+        # Transient pool: backfill runs once per episode, so its setup cost is
+        # negligible against the network savings.
         with ThreadPoolExecutor(
             max_workers=max(2, len(self._symbols)),
             thread_name_prefix="mdb-backfill",
@@ -148,9 +110,7 @@ class MarketDataBuffer:
                     for bar in bars:
                         self._insert_bar_unlocked(symbol, bar)
 
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
+    # ── Internal helpers ────────────────────────────────────────────────
 
     @staticmethod
     def _ts_key(ts: datetime) -> str:
@@ -168,9 +128,8 @@ class MarketDataBuffer:
         # Evict oldest entries if over capacity
         while len(buf) > self._buffer_size:
             buf.popitem(last=False)
-        # Record receipt time for the staleness API. Backfill calls reach
-        # here too; that's fine — when the gym loop starts there'll have
-        # been a recent insertion either way.
+        # Backfill reaches here too, which is fine: either way the gym loop
+        # starts with a recent insertion.
         self._bar_recv_perf[symbol] = time.perf_counter()
 
     def insert_bar(self, symbol: str, bar: MarketSnapshot) -> None:
@@ -178,9 +137,7 @@ class MarketDataBuffer:
         with self._lock:
             self._insert_bar_unlocked(symbol, bar)
 
-    # ------------------------------------------------------------------
-    # WebSocket callbacks
-    # ------------------------------------------------------------------
+    # ── WebSocket callbacks ─────────────────────────────────────────────
 
     def _on_bar(self, bar: MarketSnapshot) -> None:
         """Callback invoked by WebSocket bar subscription."""
@@ -202,16 +159,10 @@ class MarketDataBuffer:
         if event is not None:
             event.set()
 
-    # ------------------------------------------------------------------
-    # Streaming lifecycle
-    # ------------------------------------------------------------------
+    # ── Streaming lifecycle ─────────────────────────────────────────────
 
-    #: Reconnect parameters for the WS supervision loop. The backoff
-    #: doubles after each failed attempt up to ``WS_RECONNECT_MAX_S``
-    #: (so 1s → 2s → 4s → 8s → 16s → 30s steady-state retry interval).
-    #: Generous enough not to hammer the exchange after a brief blip,
-    #: tight enough that a healthy reconnect lands well within the
-    #: per-step REST fallback's TTL window.
+    #: Reconnect backoff for the WS supervision loop, doubling per failure up
+    #: to ``WS_RECONNECT_MAX_S``.
     WS_RECONNECT_INITIAL_S: float = 1.0
     WS_RECONNECT_MAX_S: float = 30.0
 
@@ -220,26 +171,16 @@ class MarketDataBuffer:
         kind: str,
         subscribe_coro_factory: Any,
     ) -> None:
-        """Run a single WS subscription in an exponential-backoff loop.
+        """Keep a subscription alive, reconnecting with exponential backoff.
 
-        ``subscribe_coro_factory`` is a zero-arg callable that returns
-        a fresh subscription coroutine each call. Once the subscription
-        coroutine resolves (clean close) or raises, we log, sleep with
-        exponential backoff, and re-invoke the factory — unless
-        :meth:`stop_streaming` has flipped ``self._streaming`` to False,
-        in which case we return.
-
-        ``kind`` is a human-readable label used purely in log lines
-        (e.g. ``"bars/BTCUSDT"`` or ``"ob/AAPL"``).
+        Stops when :meth:`stop_streaming` has been called.
         """
         backoff = self.WS_RECONNECT_INITIAL_S
         while self._streaming:
             try:
                 await subscribe_coro_factory()
-                # Clean close — providers don't normally return; if one
-                # does (e.g. server-closed the socket), treat it as a
-                # blip and reconnect. Reset the backoff because the
-                # connection *did* establish successfully.
+                # A provider returning means the socket closed cleanly; retry
+                # and reset the backoff, since the connection did establish.
                 backoff = self.WS_RECONNECT_INITIAL_S
                 logger.info(
                     "[%s] subscription returned cleanly; reconnecting",
@@ -265,27 +206,14 @@ class MarketDataBuffer:
     def stop_streaming(self) -> None:
         """Signal the reconnect loops to exit at their next checkpoint.
 
-        Idempotent. Does not actively cancel an in-flight ``recv()`` —
-        the loops poll ``self._streaming`` between reconnect attempts
-        and at the top of each iteration, so shutdown is observed
-        within at most one ``recv`` timeout / one backoff interval.
-        Caller is responsible for actually cancelling the asyncio task
-        if a faster teardown is required.
+        An in-flight ``recv()`` is not cancelled, so shutdown is not instant.
         """
         self._streaming = False
 
     async def start_streaming(self) -> None:
-        """Start WebSocket subscriptions for all symbols.
+        """Start streaming bars and quotes for the buffered symbols.
 
-        Each per-symbol subscription is wrapped in
-        :meth:`_subscribe_with_reconnect`, so transient disconnects
-        (server-side restart, network blip, provider rate-limit kick)
-        automatically reconnect with exponential backoff. The
-        TTL-gated REST fallback in the realtime task closes the data
-        gap during a reconnect.
-
-        Falls back gracefully if the provider does not support
-        WebSocket (returns without doing anything).
+        Returns without doing anything when the provider has no WebSocket support.
         """
         if (
             not hasattr(self._provider, "supports_websocket")
@@ -300,9 +228,8 @@ class MarketDataBuffer:
         self._streaming = True
         tasks: list[Any] = []
         for symbol in self._symbols:
-            # Capture loop-local closures so each reconnect spins up a
-            # fresh subscribe call rather than re-awaiting an exhausted
-            # coroutine. Bind symbol/interval at def time, not call time.
+            # Bind symbol and interval at def time so each reconnect makes a
+            # fresh subscribe call instead of re-awaiting a spent coroutine.
             def _make_bars_factory(sym: str, interval: str) -> Any:
                 async def _factory() -> None:
                     await self._provider.subscribe_bars(sym, interval, self._on_bar)
@@ -359,23 +286,7 @@ class MarketDataBuffer:
         return t
 
     def wait_for_warmup(self, timeout: float = 5.0) -> bool:
-        """Block until every tracked symbol has received its first
-        WebSocket push (bar or order-book), or ``timeout`` seconds
-        elapse total.
-
-        Returns ``True`` if every symbol warmed up in time, ``False``
-        otherwise. A False return is informational only — callers
-        usually log a warning and continue, relying on REST fallbacks
-        until the WS catches up. Symbols that warmed up before the
-        deadline keep their event set; the helper short-circuits
-        immediately on subsequent calls.
-
-        Implementation: iterates symbol-by-symbol with a per-symbol
-        deadline derived from the shared budget. This is the simplest
-        correct shape; we don't need true any-of semantics because the
-        callsite (task ``load_data``) wants ALL symbols ready before
-        the gym loop starts.
-        """
+        """Block until every tracked symbol has received its first WebSocket push (bar or order-book), or ``timeout`` seconds elapse total. Returns ``True`` if every symbol warmed up in time, ``False`` otherwise."""
         if not self._warmup_events:
             return True
         deadline = time.monotonic() + max(0.0, float(timeout))
@@ -390,9 +301,7 @@ class MarketDataBuffer:
                 all_warm = False
         return all_warm
 
-    # ------------------------------------------------------------------
-    # Read API
-    # ------------------------------------------------------------------
+    # ── Read API ────────────────────────────────────────────────────────
 
     def get_recent_bars(self, symbol: str, n: int) -> list[MarketSnapshot]:
         """Return the last *n* bars for *symbol*, sorted chronologically."""
@@ -411,17 +320,7 @@ class MarketDataBuffer:
             return next(reversed(buf.values()))
 
     def price_staleness_ms(self, symbol: str) -> float:
-        """Milliseconds since this symbol's last bar arrived in the buffer.
-
-        Returns ``inf`` if no bar has ever arrived for the symbol
-        (canonical pre-warmup state, signals "fetch via REST"). The
-        clock is :func:`time.perf_counter` so that successive calls
-        within ~µs of each other still report a non-zero delta even
-        on Windows where ``time.monotonic`` has ~16 ms resolution.
-        Used by the realtime-task hot path to decide whether the
-        per-step REST ``get_current_price`` is still necessary or the
-        WS-fed buffer is fresh enough to skip it.
-        """
+        """Milliseconds since this symbol's last bar arrived in the buffer."""
         with self._lock:
             recv = self._bar_recv_perf.get(symbol, 0.0)
         if recv == 0.0:
@@ -438,14 +337,7 @@ class MarketDataBuffer:
         return (time.perf_counter() - recv) * 1000.0
 
     def has_order_book(self, symbol: str) -> bool:
-        """Return True if a WS-pushed (or otherwise-cached) order book
-        exists for *symbol*.
-
-        Useful for callers that want to know whether to pre-fetch the
-        order book via REST in parallel with other calls vs. wait for
-        WS to push one. The check itself is cheap and takes the read
-        lock just long enough to peek at the dict.
-        """
+        """Return True if a WS-pushed (or otherwise-cached) order book exists for *symbol*."""
         with self._lock:
             return self._order_books.get(symbol) is not None
 

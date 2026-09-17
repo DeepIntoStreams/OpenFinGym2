@@ -1,33 +1,7 @@
 """Executor primitives: order types, TIFs, status, intents, results.
 
-This module is the source of truth for the order-lifecycle vocabulary
-shared across :class:`SimulatedExecutor` and :class:`AlpacaPaperExecutor`.
-
-Vocabulary:
-
-``OrderType`` -- ``market``, ``limit``, ``stop``, ``stop_limit``.
-``TimeInForce`` -- ``ioc`` (immediate-or-cancel) or ``gtc``
-    (good-till-cancelled / episode-end).  The legacy "day" semantic was
-    deliberately omitted from the curated framework.
-``OrderStatus`` -- ``pending`` (queued), ``filled``, ``cancelled``
-    (agent-initiated), ``expired`` (IOC didn't fill, or episode ended),
-    ``rejected`` (never accepted -- did not pass validation).
-
-Call shape:
-
-The executor exposes ``submit(intent)`` / ``cancel(order_id)`` /
-``tick(prices)`` / ``expire_all()`` instead of just the legacy
-``execute(...)``. The legacy ``execute`` method is preserved for
-existing callers that submit synchronous market orders; internally it
-is now a thin wrapper that round-trips through ``submit``.
-
-Crucially, ``submit`` and ``cancel`` *never raise* for trading-business
-errors (insufficient cash, unknown symbol, bad order_id, ...). They
-return tagged result objects (:class:`SubmitResult`, :class:`CancelResult`)
-whose ``kind`` field discriminates between accepted / filled / rejected
-outcomes. The realtime and offline tasks translate rejections into
-``info["rejections"]`` so the agent learns from them rather than
-crashing the episode.
+``submit`` and ``cancel`` never raise for trading-business errors such as
+insufficient cash or an unknown symbol; they report them in the result.
 """
 
 from __future__ import annotations
@@ -37,10 +11,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-# ---------------------------------------------------------------------------
-# Vocabulary -- string constants kept simple so they round-trip cleanly
-# through JSON / TOML without introducing an enum-import cycle.
-# ---------------------------------------------------------------------------
+# ── Vocabulary: plain strings, so they round-trip through JSON and TOML ────
 
 
 class OrderType:
@@ -65,15 +36,8 @@ class OrderStatus:
     CANCELLED = "cancelled"  # agent-initiated cancel
     EXPIRED = "expired"  # IOC didn't fill / episode ended
     REJECTED = "rejected"  # never accepted into the queue
-    # Provisional fill on AlpacaPaperExecutor: the order was accepted by
-    # Alpaca and we provisionally booked it at the market_price snapshot
-    # taken when submit() was called. The real filled_avg_price arrives
-    # via the trade_updates WebSocket push (typically <100ms later),
-    # at which point the trade_log entry is updated in-place to
-    # status=FILLED with the corrected executed_price. PROVISIONAL is
-    # never the terminal state of a record — it always converges to
-    # FILLED (or CANCELLED/REJECTED if Alpaca rejects the order
-    # post-acceptance, which is rare).
+    # Booked at the submit-time market price until Alpaca's trade_updates push
+    # arrives; never terminal, it converges to FILLED, CANCELLED or REJECTED.
     PROVISIONAL = "provisional"
 
 
@@ -100,21 +64,14 @@ class RejectionCode:
     SCHEMA_ERROR = "schema_error"
 
 
-# ---------------------------------------------------------------------------
-# Intent + records
-# ---------------------------------------------------------------------------
+# ── Intent and records ─────────────────────────────────────────────────────
 
 
 @dataclass
 class OrderIntent:
     """Pre-submission shape -- what the agent submits.
 
-    Constructed by :meth:`from_dict` from a (validated-or-not) dict
-    coming off the agent. The validation lives on the *executor* side
-    (so the executor's view of cash/positions can be checked at the
-    same time); :meth:`from_dict` only catches malformed structure
-    (missing keys, non-numeric quantities, ...) and returns a
-    :class:`Rejection` for those.
+    Built by :meth:`from_dict` from whatever dict came off the agent.
     """
 
     action: str  # "buy" | "sell" -- normalised after parsing
@@ -128,11 +85,7 @@ class OrderIntent:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "OrderIntent | Rejection":
-        """Parse + light validate. Returns either an OrderIntent or a Rejection.
-
-        Heavy validation (cash, position) is the executor's job; this
-        method only catches schema-level problems.
-        """
+        """Parse + light validate."""
         if not isinstance(d, dict):
             return Rejection(
                 order_intent=d,
@@ -148,10 +101,8 @@ class OrderIntent:
                 reason="action is required",
             )
 
-        # The cancel verb is handled separately in the executor flow --
-        # it is not a "submit"-shaped intent. We still parse it here so
-        # callers can use a single from_dict path; the executor branches
-        # on action.
+        # Cancel is parsed here so callers keep one from_dict path, but the
+        # executor handles it separately.
         if raw_action == ActionVerb.HOLD:
             # hold is a no-op — represent as a market intent with qty=0
             return cls(
@@ -332,9 +283,7 @@ class ExecutionReport:
     transaction_cost: float = 0.0
     timestamp: datetime | None = None
     extra: dict[str, Any] = field(default_factory=dict)
-    # New fields -- default to "this is a synchronous market fill" so
-    # existing tests that build ExecutionReport without them keep
-    # working unchanged.
+    # Default to a synchronous market fill so older callers keep working.
     order_id: str | None = None
     order_type: str = OrderType.MARKET
     limit_price: float | None = None
@@ -372,13 +321,7 @@ class ExecutionReport:
 
 @dataclass
 class Rejection:
-    """Result of a refused submit/cancel.
-
-    ``order_intent`` is the original dict (or partial dict) from the
-    agent, surfaced verbatim so the agent can correlate. Code is the
-    machine-readable enum in :class:`RejectionCode`; reason is the
-    human string.
-    """
+    """Result of a refused submit/cancel."""
 
     order_intent: Any
     reason_code: str
@@ -394,12 +337,7 @@ class Rejection:
 
 @dataclass
 class SubmitResult:
-    """Outcome of :meth:`BaseExecutor.submit`.
-
-    ``kind`` is one of ``"filled"`` (market or marketable; immediate
-    fill), ``"accepted"`` (queued in pending), or ``"rejected"``.
-    Exactly one of the payload fields is populated.
-    """
+    """Outcome of :meth:`BaseExecutor.submit`."""
 
     kind: str  # "filled" | "accepted" | "rejected"
     fill: ExecutionReport | None = None
@@ -441,36 +379,20 @@ class CancelResult:
 
 @dataclass
 class TickResult:
-    """Outcome of :meth:`BaseExecutor.tick`.
-
-    Bundles the (possibly empty) lists of orders that filled and orders
-    that expired during this tick. Callers translate the entries into
-    the ``info`` dict returned to the agent.
-    """
+    """Outcome of :meth:`BaseExecutor.tick`."""
 
     fills: list[ExecutionReport] = field(default_factory=list)
     expirations: list[ExecutionReport] = field(default_factory=list)
 
 
-# ---------------------------------------------------------------------------
-# Abstract base
-# ---------------------------------------------------------------------------
+# ── Abstract base ──────────────────────────────────────────────────────────
 
 
 class BaseExecutor(ABC):
     """Abstract execution backend for paper trading.
 
-    Implementations track positions, a chronological trade log of
-    :class:`ExecutionReport`, optional cash + reserved cash, and a
-    pending-order queue. PnL is computed from the trade log against
-    current market prices.
-
-    Subclasses must implement at minimum :meth:`submit`, :meth:`cancel`,
-    :meth:`tick`, :meth:`get_positions`, :meth:`get_trade_log`,
-    :meth:`compute_pnl`, and :meth:`reset`. The legacy synchronous
-    :meth:`execute` is provided as a default that builds a market
-    intent and routes through ``submit`` so existing callers keep
-    working without backend-specific overrides.
+    Subclasses implement ``submit``, ``cancel``, ``tick``, ``get_positions``,
+    ``get_trade_log`` and ``compute_pnl``.
     """
 
     @abstractmethod
@@ -482,14 +404,10 @@ class BaseExecutor(ABC):
         timestamp: datetime | None = None,
         step: int = 0,
     ) -> SubmitResult:
-        """Submit an order. Never raises for trading-business errors;
-        always returns a :class:`SubmitResult` whose ``kind`` is one of
-        ``filled``, ``accepted``, or ``rejected``.
+        """Submit an order.
 
-        ``market_price`` is a quote: a scalar tick price (realtime) or an
-        OHLC bar dict ``{open,high,low,close}`` (offline replay). Backends
-        that only see scalars (e.g. ``AlpacaPaperExecutor``) ignore the
-        bar shape.
+        Never raises for trading-business errors; the returned :class:`SubmitResult`
+        is ``filled``, ``accepted`` or ``rejected``.
         """
 
     @abstractmethod
@@ -542,22 +460,13 @@ class BaseExecutor(ABC):
 
     @abstractmethod
     def compute_pnl(self, current_prices: dict[str, float]) -> dict[str, float]:
-        """Compute per-symbol unrealised PnL from the trade log.
-
-        Returns ``{symbol: pnl_value, ..., "__total": total_pnl}``.
-        Only :attr:`OrderStatus.FILLED` entries contribute; rejected
-        and expired entries are pure audit.
-        """
+        """Compute per-symbol unrealised PnL from the trade log."""
 
     @abstractmethod
     def reset(self) -> None:
         """Clear positions, trade log, pending queue, and reserved cash."""
 
-    # ------------------------------------------------------------------
-    # Optional bookkeeping surfaced by the realtime/offline tasks.
-    # Subclasses without a meaningful concept of cash (e.g. the original
-    # SimulatedExecutor before this refactor) override these.
-    # ------------------------------------------------------------------
+    # ── Optional bookkeeping; executors without cash override these ─────
 
     def get_cash(self) -> float | None:
         """Return current free cash, or ``None`` if not tracked."""
@@ -567,9 +476,7 @@ class BaseExecutor(ABC):
         """Return cash earmarked by pending buy orders (0.0 if not tracked)."""
         return 0.0
 
-    # ------------------------------------------------------------------
-    # Backwards-compatible synchronous market-fill API
-    # ------------------------------------------------------------------
+    # ── Backwards-compatible synchronous market-fill API ────────────────
 
     def execute(
         self,
@@ -579,16 +486,7 @@ class BaseExecutor(ABC):
         market_price: float,
         timestamp: datetime | None = None,
     ) -> ExecutionReport:
-        """Legacy synchronous market-order API.
-
-        Builds a market intent and routes through :meth:`submit`. If
-        the submission is rejected this method *does* raise
-        :class:`ValueError` with the rejection's reason -- the legacy
-        contract used exceptions for bad inputs and several existing
-        callers still rely on that behaviour. New callers should use
-        :meth:`submit` directly and inspect the returned
-        :class:`SubmitResult`.
-        """
+        """Legacy synchronous market-order API."""
         if action == ActionVerb.HOLD:
             intent = OrderIntent(
                 action=ActionVerb.HOLD,
@@ -612,10 +510,8 @@ class BaseExecutor(ABC):
         if result.is_rejected:
             assert result.rejection is not None
             raise ValueError(result.rejection.reason)
-        # Market intents must never end up "accepted" (queued) -- that
-        # would silently break legacy callers that expect a synchronous
-        # fill. Subclasses that route market through queue-then-fill
-        # must still return kind="filled" for the caller.
+        # Market intents must never come back "accepted": legacy callers expect
+        # a synchronous fill, so queue-then-fill executors still report filled.
         raise RuntimeError(
             f"execute() got unexpected SubmitResult.kind={result.kind!r} "
             "for a market order; submit() should fill market orders "
