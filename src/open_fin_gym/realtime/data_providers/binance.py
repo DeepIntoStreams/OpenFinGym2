@@ -1,30 +1,4 @@
-"""Binance REST + WebSocket data provider.
-
-Free, no authentication required for market data.
-
-REST endpoints:
-    GET /api/v3/klines?symbol=BTCUSDT&interval=1m&limit=1   (current price + in-progress OHLCV)
-    GET /api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=...&endTime=...
-    GET /api/v3/depth?symbol=BTCUSDT&limit=20
-    GET /api/v3/aggTrades?symbol=BTCUSDT&fromId=...&limit=1000   (gap-recovery backfill)
-
-WebSocket streams:
-    wss://stream.binance.com:9443/ws/<symbol>@aggTrade           (price hot path)
-    wss://stream.binance.com:9443/ws/<symbol>@depth<levels>@100ms (order book)
-
-Hot-path bars are synthesised in-process from ``@aggTrade`` rather than
-read off ``@kline_<interval>``. Empirical justification (see
-``examples/measure_kline_aggtrade_reconciliation.py``):
-* ``@kline_1m`` broadcasts at ~1-2 Hz regardless of bar interval, capping
-  hot-path freshness at ~2 s. ``@aggTrade`` pushes per trade
-  (~50-150 ms one-way, ~30 msgs/s on liquid pairs).
-* Locally-synthesised OHLCV from ``@aggTrade`` matches Binance's own
-  ``@kline_1s`` closed-bar values exactly: 57/57 bars, all 8 OHLCV
-  fields, zero divergent rows over a 60 s BTCUSDT window.
-* Each ``@aggTrade`` carries a monotonically-increasing aggregate trade
-  ID ``a``; gaps are unambiguous and bridge-able via the REST
-  ``/api/v3/aggTrades?fromId=`` endpoint.
-"""
+"""Binance REST + WebSocket data provider."""
 
 import json as _json
 import logging
@@ -55,29 +29,9 @@ def _from_ms(ms: int) -> datetime:
 
 
 class _AggTradeBarBuilder:
-    """Synthesise OHLCV bars at ``interval_s`` resolution from a per-trade
-    aggTrade stream.
+    """Synthesise OHLCV bars at ``interval_s`` from a per-trade aggTrade stream.
 
-    Stateful: a single instance is bound to one ``(symbol, interval)``
-    pair for the lifetime of a WS subscription. Keeps the in-progress
-    bar (open/high/low/close/volume) and the last observed aggregate
-    trade ID for gap detection.
-
-    Bar synthesis matches Binance's own kline aggregation: a trade with
-    server-side trade time ``T`` belongs in the bar whose
-    ``floor(T / interval_ms) * interval_ms`` open-time matches.
-    Trades arriving in a new bucket close the previous bar (emitting a
-    final snapshot at the previous bar's timestamp) before opening the
-    new one. Empty bars (no trades in a bucket) are not emitted — the
-    buffer simply has a timestamp gap in that case.
-
-    Gap handling: ``on_aggtrade`` checks ``msg.a == last_a + 1`` and,
-    on detected gap, calls :meth:`rest.get_agg_trades` with
-    ``fromId=last_a + 1`` and paginates through 1000-ID batches until
-    the gap is bridged. Backfilled trades are applied in ID order
-    *without* per-trade in-progress emits (avoids flooding the buffer
-    during recovery); a single in-progress emit happens after the
-    backfill completes.
+    Buckets with no trades are skipped, leaving a gap in the timestamps.
     """
 
     def __init__(
@@ -141,10 +95,8 @@ class _AggTradeBarBuilder:
             self._c = price
             self._v += qty
         else:
-            # Crossed into a new bar. Emit the just-closed bar's final
-            # state, then start the new one. (`emit=False` callers —
-            # backfill — still benefit from the boundary emit because
-            # any subsequent live trades land in the correct bucket.)
+            # Emit the just-closed bar, then open the next one, so later live
+            # trades land in the right bucket even for backfill callers.
             self._emit_current()
             self._bar_open_ms = bucket
             self._o = self._h = self._l = self._c = price
@@ -180,9 +132,7 @@ class _AggTradeBarBuilder:
     def _bridge_gap(self, from_id: int, to_id: int) -> None:
         """Fetch ``[from_id, to_id]`` from REST and apply each trade.
 
-        Paginates in 1000-ID batches. Logs and stops on REST failure —
-        the caller's outer loop will simply have a slightly-stale
-        in-progress bar until the next live aggTrade lands; not fatal.
+        On failure it logs and stops, leaving the in-progress bar slightly stale.
         """
         logger.warning(
             "aggTrade gap detected sym=%s from_id=%d to_id=%d size=%d — REST backfill",
@@ -247,9 +197,8 @@ class BinanceProvider:
 
     _WS_BASE = "wss://stream.binance.com:9443/ws"
 
-    # Binance's IP-based request-weight ceiling on /api/v3/* endpoints
-    # is 1200/min by default. We don't pre-throttle calls — we only emit
-    # a warning when nearing the ceiling and retry once on a 429.
+    # No client-side throttle against Binance's request-weight ceiling: warn
+    # when it runs low and retry once on 429.
     _WEIGHT_LIMIT_PER_MIN: int = 1200
     _WEIGHT_WARN_THRESHOLD: float = 0.8  # warn when used-weight > 80%
 
@@ -260,10 +209,8 @@ class BinanceProvider:
     ) -> None:
         self._base = base_url.rstrip("/")
         self._session = requests.Session()
-        # rate_limit_per_min retained for back-compat (older callers passed
-        # 1200) but it no longer drives a client-side sleep loop. If the
-        # caller supplied a non-default, treat it as the soft warning
-        # threshold so they can opt into a tighter envelope.
+        # rate_limit_per_min no longer sleeps; a non-default value becomes the
+        # soft warning threshold instead.
         if rate_limit_per_min is not None:
             self._weight_limit = int(rate_limit_per_min)
         else:
@@ -288,10 +235,8 @@ class BinanceProvider:
         return resp.json()
 
     def _inspect_rate_limit_headers(self, resp: requests.Response) -> None:
-        # Binance exposes the current request-weight usage in this header
-        # (count over the rolling 1-minute window). When usage crosses
-        # _WEIGHT_WARN_THRESHOLD * limit we log a warning so the caller
-        # knows to back off before Binance starts returning 429s.
+        # Binance reports rolling request-weight usage in this header; warn past
+        # the threshold so callers can back off before the 429s start.
         used_raw = resp.headers.get("X-MBX-USED-WEIGHT-1M")
         if used_raw is None:
             return
@@ -309,9 +254,8 @@ class BinanceProvider:
 
     @staticmethod
     def _parse_retry_after(raw: str | None) -> float:
-        # Retry-After per RFC 7231 may be an integer-seconds string OR an
-        # HTTP-date. Binance always sends integer seconds; we tolerate the
-        # other form by falling back to 1.0s on parse failure.
+        # Retry-After may be seconds or an HTTP-date; Binance sends seconds, so
+        # fall back to 1.0s if it will not parse.
         if raw is None:
             return 1.0
         try:
@@ -322,13 +266,8 @@ class BinanceProvider:
     # ── DataProvider interface ────────────────────────────────────────
 
     def get_current_price(self, symbol: str) -> MarketSnapshot:
-        # Use the in-progress 1m kline rather than `/api/v3/ticker/price`
-        # so the snapshot carries running OHLCV + volume. The bar's
-        # open-time timestamp (minute boundary) lets MarketDataBuffer's
-        # dedup-by-timestamp overwrite the same entry on repeated calls
-        # within the minute — keeps `recent_bars[-1]` coherent and stops
-        # microsecond-precision wall-clock injections from accumulating
-        # as separate volume=None entries.
+        # The in-progress kline, not the ticker, so the snapshot carries OHLCV
+        # and its minute-boundary timestamp dedups repeated calls in the buffer.
         data = self._get(
             "/api/v3/klines",
             {"symbol": symbol, "interval": "1m", "limit": 1},
@@ -429,20 +368,7 @@ class BinanceProvider:
         end_time: datetime | None = None,
         limit: int = 1000,
     ) -> list[dict[str, Any]]:
-        """Fetch aggregate trades via ``GET /api/v3/aggTrades``.
-
-        Mutually-exclusive selectors (Binance accepts only one shape per
-        call): pass ``from_id`` to fetch by aggregate-trade-ID range, or
-        ``start_time`` (+ optional ``end_time``) for a time window.
-
-        ``limit`` is capped at 1000 by Binance. The response is a list of
-        raw aggTrade dicts (``a`` agg-trade-id, ``p`` price, ``q`` qty,
-        ``f`` first-trade-id, ``l`` last-trade-id, ``T`` trade time,
-        ``m`` is-buyer-maker) — caller decides how to project.
-
-        Used by :meth:`subscribe_bars` to bridge sequence-ID gaps on
-        WS reconnect; also useful for ad-hoc audits.
-        """
+        """Fetch aggregate trades via ``GET /api/v3/aggTrades``."""
         params: dict[str, Any] = {
             "symbol": symbol,
             "limit": min(int(limit), 1000),
@@ -486,41 +412,8 @@ class BinanceProvider:
     ) -> None:
         """Stream bars synthesised from ``@aggTrade`` ticks.
 
-        Why aggTrade rather than ``@kline_<interval>``: kline broadcasts
-        at ~1-2 Hz regardless of the bar interval, capping hot-path
-        freshness at ~2 s. ``@aggTrade`` pushes per executed trade
-        (~30 msgs/s on BTCUSDT, ~127 ms one-way) and carries a strictly
-        contiguous aggregate-trade ID ``a`` per symbol — gaps are
-        unambiguous and bridge-able via ``GET /api/v3/aggTrades?fromId=``.
-
-        On each aggTrade we update the in-progress bar (open/high/low/
-        close/volume) and emit a :class:`MarketSnapshot` for the *same*
-        bar timestamp. :class:`MarketDataBuffer` dedups by timestamp so
-        successive in-bar emissions overwrite a single buffer entry —
-        ``recent_bars[-1]`` therefore reflects sub-100 ms-fresh
-        per-trade state. When a trade crosses into the next bar's window
-        we emit a final snapshot for the just-closed bar (whose value is
-        already the buffer's stored OHLCV), then open the new bar.
-
-        Bar synthesis is exact: locally-computed OHLCV from this stream
-        matches Binance's own ``@kline_1s`` closed-bar values bit-for-bit
-        across all 8 OHLCV fields (verified 60 s BTCUSDT, 57/57 bars —
-        see ``examples/measure_kline_aggtrade_reconciliation.py``).
-
-        Gap handling: if an incoming ``a`` is greater than ``last_a + 1``
-        we synchronously call :meth:`get_agg_trades` to backfill
-        ``[last_a + 1, a - 1]`` (paginating in 1000-ID batches), apply
-        each recovered trade to the in-progress bar(s), then resume.
-        REST backfill triggers only on actual gaps; in steady state
-        (zero observed gaps over 60 s on BTCUSDT) it is a no-op.
-
-        Edge case — the *first* bar after subscribe: any trades that
-        occurred between the caller's REST backfill (which seeded
-        ``recent_bars`` via :meth:`get_bars`) and our first WS message
-        are not recovered; the first emitted in-progress bar's ``open``
-        starts from that first observed trade. All later bars have
-        full-window coverage. Typical gap is <500 ms on BTCUSDT, well
-        below the 1m default bar interval.
+        The first bar can miss trades that land between the REST backfill and the
+        socket opening.
         """
         import websockets  # optional dependency
 

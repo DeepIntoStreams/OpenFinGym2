@@ -1,42 +1,7 @@
 """Alpaca Markets REST + WebSocket data provider.
 
-Requires API keys (free tier available for IEX data + paper trading).
-
-REST endpoints:
-    GET /v2/stocks/{symbol}/bars/latest        (current price + in-progress OHLCV)
-    GET /v2/stocks/{symbol}/bars?timeframe=1Min&start=...&end=...
-    GET /v2/stocks/{symbol}/trades?start=...&end=...   (raw trade tape; gap recovery)
-    GET /v2/stocks/{symbol}/quotes/latest
-
-WebSocket:
-    wss://stream.data.alpaca.markets/v2/iex  (trades + quotes + bars)
-
-Hot-path bars are synthesised in-process from the ``trades`` WS channel
-rather than the ``bars`` channel. The free IEX ``bars`` channel emits
-one closed-minute bar per symbol per minute, which gives a 60-second
-hot-path freshness floor — useless for sub-second strategies. The
-``trades`` channel pushes per-trade with ~67 ms one-way latency, and
-locally-aggregated OHLCV matches Alpaca's REST ``/bars`` output
-bit-for-bit when the standard Intermarket-Sweep-Order (`'I'`)
-exclusion is applied to OHLC (volume sums all trades unconditionally).
-See ``data/run_output/realtime_diagnostics/alpaca_trades_rest_reconciliation.md``
-for the empirical validation (256/256 bars × 5 OHLCV fields, 4 symbols
-× 2 runs, 0 divergent).
-
-Two gap-recovery mechanisms layered on top:
-
-* **Watchdog** — Alpaca trade messages have no contiguous sequence ID
-  (``i`` is a per-exchange-trade ID, not stream-position), so gap
-  detection uses a silence watchdog: when no trade arrives for
-  ``WATCHDOG_TIMEOUT_S`` on the WS, fire REST ``/v2/stocks/{sym}/trades``
-  from the last-seen trade time to now and replay through the builder.
-* **Cross-check** — on every local bar close, asynchronously fetch the
-  canonical REST 1-minute bar for that minute and compare. On
-  divergence, the REST bar overwrites the local one in the
-  :class:`MarketDataBuffer` (dedup-by-timestamp makes this a simple
-  callback re-fire). Catches untested edge cases like auction prints
-  with rare condition codes (`'O'`) or trading-halt prints, without
-  slowing the WS hot path.
+Streamed bars are synthesised locally from the trade feed, with a watchdog and
+a REST cross-check covering dropped messages.
 """
 
 import asyncio
@@ -69,18 +34,8 @@ from open_fin_gym.realtime.data_providers.base import (
 logger = logging.getLogger(__name__)
 
 
-# Trade conditions Alpaca's REST /bars endpoint excludes from OHLC
-# (open/high/low/close) on the free IEX feed. Volume sums ALL trades
-# regardless of condition; this set applies only to OHLC.
-#
-# Empirically derived (see ``data/run_output/realtime_diagnostics/
-# alpaca_trades_rest_reconciliation.md``): the precise filter is just
-# 'I' (Intermarket Sweep Order). Broader defensive codes (O/M/B/L/X/...)
-# never appeared in the 1-hour validation window across SPY/AAPL/QQQ/IWM,
-# so they're neither confirmed nor refuted. We add them defensively
-# below — they're a no-op on the validated symbols and tier, but if
-# an auction-print / halt-print condition does appear, the cross-check
-# fallback below will surface a divergence and we can refine.
+# Conditions Alpaca's REST /bars excludes from OHLC on the IEX feed; volume
+# still counts every trade. Only 'I' is confirmed, the rest are defensive.
 _DEFAULT_NON_LAST_SALE_CODES: frozenset[str] = frozenset(
     {
         "I",  # Intermarket Sweep Order — empirically validated
@@ -134,43 +89,18 @@ def _to_snapshot(symbol: str, bar: Any) -> MarketSnapshot:
 
 
 class _AlpacaTradesBarBuilder:
-    """Synthesise OHLCV bars at ``interval_s`` resolution from Alpaca's
-    per-trade WS stream, with two safety nets layered on top:
+    """Synthesise OHLCV bars from Alpaca's per-trade WebSocket stream.
 
-    * **Condition-aware OHLC fold** — every trade contributes to bar
-      volume; only last-sale-eligible trades (those whose ``c`` array
-      contains no code in ``last_sale_filter``) contribute to
-      open/high/low/close. Matches Alpaca's REST ``/bars`` aggregator
-      exactly under filter ``{'I'}`` (validated 256/256 bars across 4
-      symbols × 2 runs).
-
-    * **Watchdog gap detection** — Alpaca trades don't carry a
-      contiguous sequence ID, so we can't do Binance-style ID
-      arithmetic. Instead we record the last received-wall-clock per
-      symbol; an external watcher (see :meth:`subscribe_bars`) calls
-      :meth:`backfill_silence_gap` if no trade has arrived for
-      ``WATCHDOG_TIMEOUT_S`` to replay missed trades via REST.
-
-    * **REST cross-check on bar close** — whenever a trade crosses
-      into a new bar, the just-closed bar's locally-computed OHLCV is
-      asynchronously compared against Alpaca's REST ``/bars`` value
-      for that minute. On divergence the REST bar is re-fired through
-      ``callback``; the buffer dedups by timestamp, so the REST value
-      replaces the local one. Catches untested edge cases (auction
-      prints, halt prints) without slowing the WS hot path. Runs on a
-      private :class:`ThreadPoolExecutor` so REST blocking doesn't
-      stall WS message processing.
+    Every trade counts toward volume but only last-sale-eligible ones move
+    open/high/low/close.
     """
 
-    #: Seconds of WS silence (no trade message for any subscribed
-    #: symbol) before the watchdog fires REST backfill. Conservative;
-    #: liquid US-equity names typically trade many times per second
-    #: during market hours.
+    #: Seconds of WS silence before the watchdog backfills over REST; liquid
+    #: names trade many times a second, so this is conservative.
     WATCHDOG_TIMEOUT_S: float = 30.0
 
-    #: Seconds to wait after a local bar closes before firing the REST
-    #: cross-check. Alpaca's bars aggregator needs a few seconds to
-    #: finalise the just-closed bar server-side.
+    #: Grace before the REST cross-check, since Alpaca's aggregator takes a
+    #: few seconds to finalise a closed bar.
     CROSS_CHECK_DELAY_S: float = 6.0
 
     def __init__(
@@ -208,9 +138,8 @@ class _AlpacaTradesBarBuilder:
                 thread_name_prefix=f"alp-cc-{symbol}",
             )
             self._owns_pool = True
-        # In-progress bar state. ``_ohlc_started`` separates "we've
-        # opened a bar bucket" from "we've seen a last-sale-eligible
-        # trade for OHLC" — until the latter, the bar has only volume.
+        # ``_ohlc_started`` separates an open bucket from one that has seen a
+        # last-sale-eligible trade; until then the bar carries volume only.
         self._bar_open_ms: int | None = None
         self._o = 0.0
         self._h = 0.0
@@ -219,9 +148,8 @@ class _AlpacaTradesBarBuilder:
         self._v = 0.0
         self._ohlc_started = False
         self._ohlc_trade_count = 0
-        # Watchdog state — last trade-time we observed (NOT
-        # local-recv-time): used to span the REST backfill window
-        # after a silence.
+        # Last observed trade time, not receipt time, so the backfill window
+        # after a silence lines up with the venue clock.
         self._last_trade_ms: int | None = None
         # Used by the subscribe_bars loop to know when the WS has
         # really gone idle vs when it's mid-flight.
@@ -257,27 +185,7 @@ class _AlpacaTradesBarBuilder:
         self._callback(snap)
 
     def _close_current_bar(self) -> None:
-        """Emit the final snapshot for the closed bar and asynchronously
-        schedule the REST cross-check.
-
-        **Hot-path contract — no blocking I/O.** This method is called
-        synchronously from :meth:`on_trade` on the WS receive path; any
-        latency introduced here directly delays the next trade's
-        processing. So:
-
-        * ``_emit_current()`` is a constant-time dict construction +
-          buffer-lock acquisition (~10 µs on liquid pairs);
-        * ``_cross_check_pool.submit()`` returns in ~5 µs once the task
-          is enqueued; the actual REST work (a 6-second sleep followed
-          by the ``/bars`` call) runs on a worker thread, releasing the
-          GIL for the duration of both the ``time.sleep`` and the
-          ``requests``-driven HTTP I/O. The WS thread continues
-          consuming trades unimpeded.
-
-        Total added cost on the hot path at every bar boundary:
-        ~15 µs. Test ``test_cross_check_does_not_block_hot_path`` pins
-        this with a deliberately slow REST mock.
-        """
+        """Emit the final snapshot for the closed bar and asynchronously schedule the REST cross-check."""
         if self._bar_open_ms is None or not self._ohlc_started:
             return
         closed_open_ms = self._bar_open_ms
@@ -380,15 +288,7 @@ class _AlpacaTradesBarBuilder:
         return (time.perf_counter() - self._last_msg_perf) * 1000.0
 
     def backfill_silence_gap(self) -> None:
-        """REST-fetch trades since ``_last_trade_ms`` and replay them.
-
-        Called by the supervisor when the WS has been silent for
-        :attr:`WATCHDOG_TIMEOUT_S`. The REST fetch covers
-        ``(_last_trade_ms, now)`` exclusive of the original (since the
-        WS already delivered that one). Trades land in the builder via
-        ``_apply_trade(emit=False)`` to avoid flooding the buffer
-        during recovery; one summary emit happens at the end.
-        """
+        """REST-fetch trades since ``_last_trade_ms`` and replay them."""
         if self._last_trade_ms is None:
             return
         start = datetime.fromtimestamp(
@@ -447,23 +347,10 @@ class _AlpacaTradesBarBuilder:
         closed_open_ms: int,
         local: dict[str, float],
     ) -> None:
-        """Compare just-closed local bar to Alpaca REST ``/bars`` and
-        replace if divergent.
+        """Compare the just-closed local bar against Alpaca's REST bar, replacing it if they diverge.
 
-        **Threading.** Runs on the cross-check :class:`ThreadPoolExecutor`,
-        **not** the WS event loop. The ``time.sleep`` releases the GIL;
-        the ``requests``-driven HTTP call inside ``get_bars`` also
-        releases the GIL during socket I/O. So the WS thread continues
-        receiving and dispatching trades the entire ~6.07 s this method
-        is alive (≈6 s sleep + 1 RTT for REST).
-
-        **Race-free overwrite.** By the time the REST result lands,
-        the WS has moved on to bar *N+1*; any subsequent ``_emit``
-        from the WS thread writes to bar *N+1*'s timestamp. The
-        replacement here writes to bar *N*'s timestamp. Different
-        timestamps → different buffer entries → no collision. The
-        only shared mutation is the buffer lock, acquired briefly by
-        the ``_callback`` re-fire.
+        Runs on the cross-check pool rather than the WS loop, and only ever rewrites
+        the bar it was started for.
         """
         try:
             time.sleep(self.CROSS_CHECK_DELAY_S)
@@ -492,9 +379,8 @@ class _AlpacaTradesBarBuilder:
                 target = b
                 break
         if target is None:
-            # REST hasn't produced the bar yet (race) or excluded it
-            # entirely (zero last-sale-eligible trades). Either way,
-            # nothing to compare against; leave the local bar in place.
+            # REST has no bar yet, or excluded it for want of eligible trades;
+            # either way leave the local bar alone.
             return
         rest = {
             "o": float(target.open if target.open is not None else target.price),
@@ -575,9 +461,8 @@ class AlpacaProvider:
 
     _WS_URL = "wss://stream.data.alpaca.markets/v2/iex"
 
-    # Alpaca's free/basic data tier allows ~200 requests/min. We don't
-    # pre-throttle on the client; instead we surface a warning when the
-    # remaining-quota header drops low and retry once on 429.
+    # No client-side throttle: warn when the remaining-quota header runs low
+    # and retry once on 429.
 
     def __init__(
         self,
@@ -595,9 +480,8 @@ class AlpacaProvider:
                 "Alpaca API key not set (%s). Requests will likely fail.",
                 api_key_env,
             )
-        # rate_limit_per_min retained for back-compat; previously drove a
-        # client-side sleep loop. Now informational only: stored so a caller
-        # who explicitly passed a tighter envelope can still inspect it.
+        # rate_limit_per_min is informational now, kept so callers that passed
+        # a tighter envelope can still read it back.
         self._declared_rate_limit_per_min = rate_limit_per_min
 
         self._data_client = StockHistoricalDataClient(
@@ -605,9 +489,8 @@ class AlpacaProvider:
         )
 
     def get_current_price(self, symbol: str) -> MarketSnapshot:
-        # The latest bar rather than the latest trade, so the snapshot carries
-        # OHLCV. Its open-time timestamp lets MarketDataBuffer overwrite the
-        # same entry on repeated calls within the minute.
+        # The latest bar, not trade, so the snapshot carries OHLCV and its
+        # open time lets the buffer overwrite the same entry within a minute.
         request = StockLatestBarRequest(symbol_or_symbols=symbol, feed=self._feed)
         bars = self._data_client.get_stock_latest_bar(request)
         bar = bars.get(symbol)
@@ -694,36 +577,7 @@ class AlpacaProvider:
         interval: str,
         callback: Callable[[MarketSnapshot], None],
     ) -> None:
-        """Stream bars synthesised from Alpaca WS ``trades`` ticks.
-
-        Why ``trades`` rather than ``bars``: the free IEX ``bars``
-        channel emits **one closed-minute bar per symbol per minute, at
-        minute close** — a 60-second hot-path freshness ceiling on the
-        same tier that exposes a per-trade ``trades`` channel with ~67
-        ms one-way latency. Reading those trades into a local
-        condition-aware OHLCV synthesiser reproduces Alpaca's REST
-        ``/bars`` output bit-for-bit at sub-second latency (see module
-        docstring + validation harness).
-
-        Three layered safeties:
-
-        1. **Condition-aware OHLC fold**: trades with `'I'` (Intermarket
-           Sweep Order) or other rare non-last-sale codes are excluded
-           from OHL/C. All trades count toward volume.
-        2. **Silence watchdog**: if no trade arrives for
-           ``_AlpacaTradesBarBuilder.WATCHDOG_TIMEOUT_S`` we fire REST
-           ``/v2/stocks/{sym}/trades`` to replay the missed window. The
-           framework's :class:`MarketDataBuffer` also has its own
-           reconnect supervisor; the two are complementary (reconnect
-           handles connection death, this watchdog handles a stalled
-           but still-open WS).
-        3. **REST cross-check on bar close**: every locally-closed bar
-           is async-compared against ``/v2/stocks/{sym}/bars``; on
-           divergence the REST value is re-fired through ``callback``
-           and the buffer's dedup-by-timestamp swaps the local bar for
-           the canonical one. Catches untested edge cases (auction
-           prints, halt prints) without slowing the WS hot path.
-        """
+        """Stream bars synthesised from Alpaca WS ``trades`` ticks."""
         import websockets  # optional dependency
 
         builder = _AlpacaTradesBarBuilder(
@@ -754,9 +608,8 @@ class AlpacaProvider:
                 )
                 await ws.recv()  # subscription ack
 
-                # Watchdog loop: poll for messages with a timeout
-                # equal to the silence threshold. On TimeoutError, run
-                # the REST silence-backfill and resume.
+                # Poll with a timeout equal to the silence threshold, then
+                # backfill over REST when it expires.
                 watchdog_s = _AlpacaTradesBarBuilder.WATCHDOG_TIMEOUT_S
                 while True:
                     try:
