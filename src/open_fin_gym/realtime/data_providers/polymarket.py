@@ -23,6 +23,9 @@ logger = logging.getLogger(__name__)
 # is met, so a large page size only means fewer round trips.
 _DISCOVERY_PAGE_SIZE = 500
 
+# Candidates gathered per trial before keeping the soonest-settling ``cap``.
+_OVERSAMPLE = 5
+
 
 class PolymarketProvider:
     """Market data and event outcomes from the Polymarket public API."""
@@ -297,14 +300,19 @@ class PolymarketProvider:
                     continue
                 if not payload["clob_token_ids"]:
                     continue  # can't price-query; skip
-                self._cache_market(payload)
                 kept.append(payload)
-                if len(kept) >= cap:
+                # Oversample, then keep the soonest-settling ones below: upstream
+                # order is arbitrary, and a trial can only score what settles.
+                if len(kept) >= cap * _OVERSAMPLE:
                     break
         except PolymarketError as exc:
             logger.warning(
                 "Polymarket discovery stopped after %d markets: %s", len(kept), exc
             )
+        kept.sort(key=lambda m: m["resolution_at"])
+        kept = kept[:cap]
+        for payload in kept:
+            self._cache_market(payload)
         return kept
 
     def get_event_outcome(self, symbol: str) -> float | None:
