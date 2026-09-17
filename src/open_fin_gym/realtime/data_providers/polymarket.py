@@ -1,24 +1,6 @@
-"""Polymarket data provider (event-resolution prediction markets).
+"""Polymarket event-market provider built on the official SDK.
 
-Polymarket exposes binary YES/NO prediction markets through a free
-public API. This provider implements the :class:`DataProvider` and
-:class:`EventDataProvider` protocols so polymarket plugs into the same
-realtime ledger / resolver machinery that crypto-forecasting uses.
-
-All upstream access goes through the official ``polymarket`` SDK's
-:class:`PublicClient`, which covers both backends we need — market
-discovery and metadata (Gamma) and historical YES-side prices (CLOB) —
-and returns typed models rather than raw JSON.
-
-Symbol convention: a polymarket "symbol" is the market's
-``condition_id`` (a ``0x…`` hex hash). Each condition has two CLOB
-token ids, one per outcome; we always use the YES side for price
-queries.
-
-Resolution semantics: a resolved market prices its outcomes at
-``1``/``0`` for a decided market and ``0.5``/``0.5`` for an ambiguous
-one (the UMA dispute fallback). The resolver treats ``0.5`` outcomes as
-unscoreable and drops them.
+Symbols are market condition ids; prices are YES-side probabilities.
 """
 
 from __future__ import annotations
@@ -43,16 +25,7 @@ _DISCOVERY_PAGE_SIZE = 500
 
 
 class PolymarketProvider:
-    """Market data + event outcomes from the Polymarket public API.
-
-    Caching:
-        - ``_market_cache`` stores the full payload for any symbol seen
-          via ``discover_active_markets`` or fetched on demand by
-          ``get_market_metadata``.
-        - ``_clob_token_cache`` stores the YES-side token id per symbol
-          so ``get_price_at`` / ``get_bars`` can avoid re-fetching the
-          parent market record on every price query.
-    """
+    """Market data and event outcomes from the Polymarket public API."""
 
     name = "polymarket"
 
@@ -65,12 +38,7 @@ class PolymarketProvider:
 
     @staticmethod
     def _to_payload(market: Any) -> dict[str, Any]:
-        """Normalise an SDK market model into our payload shape.
-
-        The returned dict is what ``discover_active_markets`` yields and
-        what ``get_market_metadata`` caches. Keys are stable across
-        callers (handler observation, ledger writes, resolver scoring).
-        """
+        """Flatten an SDK market model into the payload shape tasks consume."""
         yes, no = market.outcomes.yes, market.outcomes.no
         state, prices, metrics = market.state, market.prices, market.metrics
         outcome_prices = [_f(yes.price), _f(no.price)]
@@ -159,11 +127,7 @@ class PolymarketProvider:
     # ── DataProvider interface ─────────────────────────────────────────
 
     def get_current_price(self, symbol: str) -> MarketSnapshot:
-        """Return the current YES-side price for *symbol*.
-
-        Snapshot carries the YES probability as ``price`` and the full
-        orderbook NBBO (best_bid/best_ask) in ``extra``.
-        """
+        """Return the current YES probability, with the NBBO in ``extra``."""
         payload = self._market_cache.get(symbol) or self._fetch_market_by_condition_id(symbol)
         if payload is None:
             raise ValueError(f"No polymarket market found for {symbol}")
@@ -184,13 +148,7 @@ class PolymarketProvider:
     def get_price_at(
         self, symbol: str, at: datetime, interval: str = "1m"
     ) -> MarketSnapshot:
-        """Return the YES-side price closest to timestamp *at*.
-
-        Reads a tight ±1h bracket at 1-minute granularity and picks the
-        point closest to *at*. ``interval`` is accepted for
-        :class:`DataProvider` signature parity but unused — event markets
-        resolve through ``get_event_outcome``, not bar-close lookup.
-        """
+        """Return the YES price nearest *at*; ``interval`` exists for protocol parity only."""
         at = _utc(at)
         points = self._price_history(
             symbol, at - timedelta(hours=1), at + timedelta(hours=1), 60
@@ -230,35 +188,14 @@ class PolymarketProvider:
     # ── EventDataProvider interface ────────────────────────────────────
 
     def discover_active_markets(self, filters: dict[str, Any]) -> list[dict[str, Any]]:
-        """Discover currently-active markets matching *filters*.
+        """Return active markets matching *filters*, caching each.
 
-        Recognised filter keys:
-
-        - ``resolution_window_hours_min`` / ``resolution_window_hours_max``:
-          markets resolving within this many hours from now (server-side
-          ``end_date_min`` / ``end_date_max``).
-        - ``min_total_volume``: server-side ``volume_num_min``.
-        - ``min_liquidity``: server-side ``liquidity_num_min``.
-        - ``tag_id``: server-side ``tag_id``.
-        - ``exclude_disputed``: bool — post-filter dropping markets
-          currently in a disputed UMA resolution status. Not a
-          server-side ``uma_resolution_status`` query, because upstream
-          treats that param as an *inclusion* filter (``=resolved``
-          returns only resolved markets, the opposite of what
-          active-market discovery wants).
-        - ``min_yes_price`` / ``max_yes_price``: post-filter; default
-          0.01 / 0.99 to drop already-resolved-by-consensus markets.
-        - ``min_24h_volume_usd``: post-filter (no server-side equivalent).
-        - ``min_orderbook_depth_usd``: post-filter via liquidity, falling
-          back to a spread sanity check when liquidity is unavailable.
-        - ``categories``: post-filter; empty list = all categories.
-        - ``binary_only``: bool — post-filter, only markets with exactly
-          two outcomes (YES/NO).
-        - ``max_markets_per_trial``: cap applied after all filters.
-
-        Returns a list of market payload dicts (see :meth:`_to_payload`
-        for fields). Each is also cached for later metadata / price
-        queries.
+        Args:
+            filters: Server-side ``resolution_window_hours_min``/``_max``,
+                ``min_total_volume``, ``min_liquidity``, ``tag_id``; client-side
+                ``exclude_disputed``, ``min_yes_price``/``max_yes_price``,
+                ``min_24h_volume_usd``, ``min_orderbook_depth_usd``, ``categories``,
+                ``binary_only``, and the ``max_markets_per_trial`` cap.
         """
         now = datetime.now(timezone.utc)
         win_min_h = filters.get("resolution_window_hours_min")
@@ -293,9 +230,8 @@ class PolymarketProvider:
         exclude_disputed = bool(filters.get("exclude_disputed", True))
         cap = int(filters.get("max_markets_per_trial", 50))
 
-        # A market can still be open with its event time already past, during
-        # the UMA dispute window, so re-check the window client-side with a
-        # 60s tolerance for clock drift.
+        # Markets in the UMA dispute window are still open past their event time,
+        # so re-check the window client-side, allowing 60s of clock drift.
         skew = timedelta(seconds=60)
         win_min_dt = now + timedelta(hours=float(win_min_h)) - skew if win_min_h is not None else None
         win_max_dt = now + timedelta(hours=float(win_max_h)) + skew if win_max_h is not None else None
@@ -312,6 +248,8 @@ class PolymarketProvider:
                 payload = self._to_payload(market)
                 if payload["closed"] or not payload["active"]:
                     continue
+                # Client-side: upstream's uma_resolution_status is an inclusion
+                # filter, so it cannot exclude disputed markets.
                 if exclude_disputed and (
                     str(payload["uma_resolution_status"] or "").lower() == "disputed"
                 ):
@@ -361,11 +299,9 @@ class PolymarketProvider:
         return kept
 
     def get_event_outcome(self, symbol: str) -> float | None:
-        """Return resolved outcome for *symbol* (0/1/0.5) or None if pending.
+        """Return 1, 0 or 0.5 once *symbol* resolves, else None.
 
-        Always re-fetches (does NOT use cache) because resolution state
-        changes between submission time and resolver invocation. Updates
-        the cache with the fresh payload as a side-effect.
+        Always re-fetched, since resolution changes after submission.
         """
         fresh = self._fetch_market_by_condition_id(symbol)
         if fresh is None or not fresh["closed"]:
