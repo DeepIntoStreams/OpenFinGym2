@@ -162,10 +162,8 @@ def create_app() -> FastAPI:
             "train_ground_truth": as_json(task.get_train_ground_truth()),
             "features": as_json(task.get_features()),
         }
-        # The target is an absolute price while every feature is a return
-        # or another scale-free quantity, so without the reference close
-        # there is nothing to anchor the level to and no prediction can be
-        # better than a guess at where the price happens to sit.
+        # Features are scale-free, so the reference close is what anchors an
+        # absolute-price prediction.
         for name in ("reference_train", "reference_test"):
             getter = getattr(task, f"get_{name}", None)
             if getter is not None:

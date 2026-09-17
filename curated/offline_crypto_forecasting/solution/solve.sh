@@ -24,12 +24,8 @@ else:
 
 data = call("/features")
 
-# Reference policy: reference * (1 + drift), the numpy baseline the task
-# instructions name. The target is an absolute price while every feature is
-# scale-free, so the reference close is what fixes the level; drift is the
-# mean per-bar move over the training split. Carrying the reference across
-# unchanged would score well on price error but leaves the direction
-# undefined, since sign(predicted - reference) would be zero everywhere.
+# Reference policy: reference * (1 + drift), the baseline the instructions name.
+# Drift keeps sign(predicted - reference) defined, which a flat carry-forward would not.
 ref_train = data["reference_train"]
 ref_test = data["reference_test"]
 train_target = data["train_ground_truth"]
