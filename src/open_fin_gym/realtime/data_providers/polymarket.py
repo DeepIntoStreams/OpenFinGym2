@@ -79,14 +79,23 @@ class PolymarketProvider:
 
     def _fetch_market_by_condition_id(self, symbol: str) -> dict[str, Any] | None:
         """Fetch and cache a single market by its condition id."""
-        try:
-            page = self._client.list_markets(
-                condition_ids=[symbol], include_tag=True, page_size=1
-            )
-            market = next(page.iter_items(), None)
-        except PolymarketError as exc:
-            logger.warning("Polymarket fetch failed for %s: %s", symbol, exc)
-            return None
+        market = None
+        # Both states have to be asked for explicitly: a settled market is
+        # absent from the default listing, which would leave outcomes unreadable.
+        for closed in (False, True):
+            try:
+                page = self._client.list_markets(
+                    condition_ids=[symbol],
+                    closed=closed,
+                    include_tag=True,
+                    page_size=1,
+                )
+                market = next(page.iter_items(), None)
+            except PolymarketError as exc:
+                logger.warning("Polymarket fetch failed for %s: %s", symbol, exc)
+                return None
+            if market is not None:
+                break
         if market is None:
             return None
         payload = self._to_payload(market)
