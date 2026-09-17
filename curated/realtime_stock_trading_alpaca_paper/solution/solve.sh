@@ -28,7 +28,9 @@ obs = call("/reset", {})
 # hold it, and flatten on the last one.
 symbol = next(iter(obs["symbols"]))
 price = obs["symbols"][symbol]["price"]
-quantity = round(obs["portfolio"]["cash"] * 0.2 / price, 4)
+# Whole shares: Alpaca rejects fractional orders unless they are DAY orders,
+# and the executor submits GTC.
+quantity = int(obs["portfolio"]["cash"] * 0.2 // price)
 
 while True:
     if obs["step"] == 0 and quantity > 0:
@@ -42,4 +44,7 @@ while True:
     if result["done"]:
         break
     obs = result["observation"]
+    # Let Alpaca settle the fill before the next step; an opposite-side order
+    # against a still-open one is rejected as a potential wash trade.
+    time.sleep(6)
 PY
