@@ -34,7 +34,3 @@ build_timeout_sec = 900.0
 os = "linux"
 cpus = 2
 memory_mb = 4096
-
-[environment.env]
-ALPACA_API_KEY = "${ALPACA_API_KEY_ID}"
-ALPACA_SECRET_KEY = "${ALPACA_API_SECRET_KEY}"
