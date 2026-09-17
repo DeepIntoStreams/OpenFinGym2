@@ -1,24 +1,4 @@
-"""Curated task: Realtime Stock Forecasting via Alpaca API.
-
-Streaming **price prediction** on real-time US equity market data.
-The agent submits an absolute future price (``predicted_price``) for
-``horizon_bars`` ahead and direction is *derived* server-side from
-``sign(predicted_price - entry_price)``. Direction-only submissions
-also work but score on directional metrics only. Ground truth is
-deferred until the resolver service fetches the exit price after the
-prediction horizon elapses.
-
-Requires Alpaca API keys (free IEX tier is sufficient).  Set the
-``ALPACA_API_KEY`` and ``ALPACA_SECRET_KEY`` environment variables.
-
-Interaction pattern (gym loop, batch_mode=False)::
-
-    obs = task.reset()                          # current market snapshot
-    while not done:
-        action = agent.act(obs)                 # {"symbol": ..., "predicted_price": ...}
-        obs, reward, done, info = task.step(action)  # records to ledger
-    rewards = task.evaluate(actions)            # {"status_deferred": 1.0, ...}
-"""
+"""Curated task: Realtime Stock Forecasting via Alpaca API."""
 
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -36,11 +16,6 @@ _DEFAULT_DB = _RESULTS_DIR / "predictions.db"
 
 class RealtimeStockForecasting(RealtimeForecastingTask):
     """One-liner realtime forecasting on US equities via Alpaca.
-
-    Pre-configured with sensible defaults so agent authors do not need to
-    manually wire the data provider and prediction ledger. The curated
-    bundle's ``run_evaluation_curated.py`` drives the gym loop via
-    :mod:`open_fin_gym.realtime.agent_runtime`.
 
     Args:
         config: Recognised keys (all optional, with defaults):
@@ -67,6 +42,7 @@ class RealtimeStockForecasting(RealtimeForecastingTask):
               ``reward.json`` headline (default ``"price_mape"``).
         provider: Override the default :class:`AlpacaProvider` (useful for tests).
         ledger: Override the default file-backed ledger.
+
     """
 
     def __init__(

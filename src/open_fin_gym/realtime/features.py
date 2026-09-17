@@ -1,31 +1,4 @@
-"""Engineered-feature sanitization for OHLCV-based curated forecasting tasks.
-
-Centralizes the "warn on anomalies + replace inf with NaN + dropna" pass
-shared by ``offline_crypto_forecasting`` and ``offline_stock_forecasting``.
-The behavior preserved from the previous inline ``df.dropna()`` is the
-same row deletion; the addition is anomaly detection and an actionable
-warning that surfaces the *upstream raw bar* that caused the anomaly.
-
-Background — why this matters:
-
-When an exchange returns a "frozen" placeholder bar during downtime
-(OHLC all equal to the last trade price, volume == 0), downstream
-features explode:
-
-* ``volume_change = volume.pct_change()`` → ``+inf`` on the bar *after*
-  the zero-volume bar (current_vol / 0).
-* ``high_low_range``, ``close_open_range`` → ``0`` (cosmetically clean
-  but a bogus "flat" training sample).
-
-Plain ``df.dropna()`` does **not** drop ``inf`` — only ``NaN`` — so the
-``inf`` poisons any sklearn estimator that rejects non-finite input
-(``StandardScaler``, ``Ridge``, ...). Agent processes die before
-submitting predictions and the verifier short-circuits to
-``reward = 0.0`` with no metric panel. By converting ``inf → NaN`` then
-``dropna``-ing, both the inf cell and any mid-series NaN gap are
-silently consumed, while a single warning per anomalous row makes the
-underlying data issue visible host-side.
-"""
+"""Engineered-feature sanitization for OHLCV-based curated forecasting tasks."""
 
 from __future__ import annotations
 
@@ -51,27 +24,7 @@ def sanitize_engineered_features(
     symbol: Optional[str] = None,
     ts_col: str = "timestamp",
 ) -> Tuple[pd.DataFrame, int]:
-    """Replace ±inf with NaN, ``dropna()``, and warn on body-row anomalies.
-
-    ``head_envelope`` and ``tail_envelope`` are the row counts the caller
-    expects to drop due to rolling-window warmup and forecast-horizon
-    shift respectively — NaN there is normal and silently consumed.
-
-    "Anomaly" = any non-finite cell (``inf`` or ``NaN``) in the scanned
-    columns outside that envelope. For each anomalous row we emit one
-    ``logging.warning`` naming the offending column(s), the engineered
-    row's timestamp, and the upstream raw bar. If the bar (or its
-    predecessor) has ``volume == 0`` with frozen OHLC the warning flags
-    that explicitly as the canonical exchange-gap signature.
-
-    Returns ``(cleaned_df, n_anomalies)``. ``n_anomalies`` is zero on
-    clean data.
-
-    Note: ``df`` is expected to have integer-aligned indexing with
-    ``raw`` (i.e. ``df`` was produced via ``raw.copy()`` and no reindex
-    has occurred). This holds for the current curated forecasting
-    feature pipelines.
-    """
+    """Replace ±inf with NaN, ``dropna()``, and warn on body-row anomalies."""
     scan_cols = list(feature_cols)
     for extra in ("target", "reference"):
         if extra in df.columns and extra not in scan_cols:
@@ -145,14 +98,7 @@ def _emit_anomaly_warning(
 
 
 def _upstream_context(raw: pd.DataFrame, df_idx: int, ts_col: str) -> str:
-    """Format the raw OHLCV bar(s) most likely behind the anomaly.
-
-    Engineered row indexing matches raw row indexing because features
-    are computed in-place on ``raw.copy()`` and ``dropna()`` runs *after*
-    this helper. We surface the same-index bar and the previous bar —
-    the predecessor is the typical culprit for ``pct_change``-style
-    features (zero divisor lands one row earlier).
-    """
+    """Format the raw OHLCV bar(s) most likely behind the anomaly."""
     parts: list[str] = []
     flag = ""
     for offset, label in ((0, "raw"), (-1, "prev_raw")):

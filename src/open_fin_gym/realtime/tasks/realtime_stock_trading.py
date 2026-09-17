@@ -1,30 +1,4 @@
-"""Curated task: Realtime Stock Trading via Alpaca API.
-
-Paper trading on real-time US equity market data.  The agent receives a
-fresh price snapshot (plus recent bar history and NBBO quotes) each
-step and submits buy/sell/hold actions with a quantity.  Rewards are
-immediate mark-to-market PnL.
-
-Requires Alpaca API keys (free tier is sufficient).  Set the
-``ALPACA_API_KEY`` and ``ALPACA_SECRET_KEY`` environment variables.
-
-Supports two execution modes:
-  - ``"internal_paper"`` (default): in-process paper trading engine
-    (SimulatedExecutor) with configurable slippage and transaction
-    costs. Live prices come from Alpaca; orders never leave the agent
-    container.
-  - ``"alpaca_paper"``: submits real orders to Alpaca's paper-trading
-    environment at ``paper-api.alpaca.markets``. Position state and
-    realized PnL come from Alpaca's account.
-
-Interaction pattern (gym loop)::
-
-    obs = task.reset()                          # market + positions snapshot
-    while not done:
-        action = agent.act(obs)                 # {"action": "buy", "symbol": ..., "quantity": ...}
-        obs, reward, done, info = task.step(action)  # executes via engine
-    rewards = task.evaluate(actions)            # Sharpe, drawdown, PnL, etc.
-"""
+"""Curated task: Realtime Stock Trading via Alpaca API."""
 
 from typing import Any, Dict, Optional
 
@@ -43,9 +17,7 @@ class RealtimeStockTrading(RealtimeTradingTask):
     manually wire the data provider and execution engine::
 
         task = RealtimeStockTrading()
-        # Run a basic gym loop or use the in-container runner:
-        # open_fin_gym.realtime.agent_runtime
-        # .run_realtime_trading_trial
+        # Drive it with a plain gym loop.
 
     Args:
         config: Recognised keys (all optional, with defaults):

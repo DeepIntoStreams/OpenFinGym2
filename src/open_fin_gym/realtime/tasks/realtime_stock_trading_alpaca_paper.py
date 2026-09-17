@@ -1,37 +1,7 @@
 """Curated task: Realtime Stock Trading via Alpaca's paper-trading API.
 
-This is the **real paper trading** variant: orders are submitted to
-Alpaca's paper-trading environment at ``paper-api.alpaca.markets``,
-filled against Alpaca's simulated order book, and PnL is read back from
-the paper account's positions. Unlike :class:`RealtimeStockTrading` (which
-defaults to the in-house :class:`SimulatedExecutor`), this task forces
-``execution_mode="alpaca_paper"`` so the interaction goes through
-:class:`AlpacaPaperExecutor`.
-
-Use this task when you want to:
-  - Validate strategies against Alpaca's actual paper-trading fill logic
-    (real market hours, real slippage, real rejection behaviour).
-  - Keep a persistent paper portfolio on the Alpaca dashboard between
-    runs.
-  - Prepare for a switch to real capital (real-money trading) by exercising
-    the exact same REST order path.
-
-Use :class:`RealtimeStockTrading` (in-house simulated mode) when you want
-deterministic, offline-friendly execution with configurable slippage /
-transaction costs.
-
-Requires Alpaca API keys in the environment::
-
-    ALPACA_API_KEY=...
-    ALPACA_SECRET_KEY=...
-
-Interaction pattern (identical to :class:`RealtimeStockTrading`)::
-
-    obs = task.reset()                          # market + account snapshot
-    while not done:
-        action = agent.act(obs)                 # {"action": "buy", "symbol": ..., "quantity": ...}
-        obs, reward, done, info = task.step(action)
-    rewards = task.evaluate(actions)
+Orders go to Alpaca's paper account, so fills and PnL come from their engine
+rather than the in-house simulator.
 """
 
 from typing import Any, Dict, Optional
@@ -93,9 +63,8 @@ class RealtimeStockTradingAlpacaPaper(RealtimeTradingTask):
         )
         data_resolution = config.get("data_resolution")
         target_symbols = config.get("target_symbols")
-        # initial_capital is forwarded for API symmetry but the
-        # AlpacaPaperExecutor reads cash from /v2/account, not from a
-        # local pool, so this knob is informational here.
+        # initial_capital is informational here: the executor reads cash from
+        # the paper account.
         initial_capital = float(config.get("initial_capital", 100000.0))
 
         trading_config = TradingConfig(

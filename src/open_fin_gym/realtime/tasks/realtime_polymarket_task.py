@@ -1,41 +1,7 @@
-"""RealtimePolymarketTask — event-resolution probability forecasting.
+"""RealtimePolymarketTask -- event-resolution probability forecasting.
 
-This task lives in the curated realtime family alongside
-``RealtimeForecastingTask`` / ``RealtimeTradingTask``, but its
-interaction pattern is **single-shot batch**, not streaming gym loop:
-
-1. At ``__init__`` time, the task calls
-   :meth:`PolymarketProvider.discover_active_markets` with the
-   ``[curated.default_config.discovery]`` filter block from
-   ``task.toml``. Active markets are cached as the trial's
-   prediction universe along with each market's absolute
-   ``resolve_at`` timestamp (from Polymarket's ``endDateIso``).
-
-2. The in-container agent calls ``GET /markets/active`` on the
-   verifier RPC to fetch the universe payload (question text,
-   description, resolution criteria, current YES price, orderbook,
-   tags, historical price bars).
-
-3. The agent submits one batch of probability predictions via
-   ``POST /submit/event_predictions_async`` — one
-   ``predicted_yes_probability ∈ [0, 1]`` per market. The verifier
-   captures ``entry_price`` server-side (= current YES price) and
-   writes per-prediction rows to the ``PredictionLedger`` with each
-   row's ``resolve_at`` set to that market's absolute resolution
-   timestamp (NOT a uniform horizon).
-
-4. After all markets in the session have resolved, the user runs
-   ``python -m openfinai_harbor.resolve_deferred <trial_dir>`` to
-   fetch event outcomes via
-   :meth:`PolymarketProvider.get_event_outcome` and compute the
-   ``EventReward`` metrics (Brier / log-loss / ECE). Predictions
-   on UMA-disputed (``outcome == 0.5``) markets are dropped from
-   scoring upstream in the resolver.
-
-The gym-loop methods (``reset`` / ``step``) are minimal because the
-agent does not interact with the task object directly — all
-interaction goes through the verifier RPC. ``step()`` is a no-op
-that immediately signals ``done=True``.
+Single-shot rather than a gym loop: the market universe is frozen at
+construction and each market carries its own resolution time.
 """
 
 from __future__ import annotations
@@ -59,10 +25,8 @@ _RESULTS_DIR = Path(__file__).resolve().parents[3] / "results"
 _DEFAULT_DB = _RESULTS_DIR / "polymarket_predictions.db"
 
 
-# Default discovery filters — kept in sync with the curated bundle's
-# task.toml [curated.default_config.discovery] block. Operators
-# override per-bundle; these are the fallbacks if the task is
-# instantiated programmatically without a config.
+# Fallback discovery filters for programmatic use; bundles override them from
+# their own config.
 _DEFAULT_DISCOVERY: dict[str, Any] = {
     "resolution_window_hours_min": 1,
     "resolution_window_hours_max": 48,
@@ -148,9 +112,8 @@ class RealtimePolymarketTask(BaseTask):
                 logger.exception("polymarket discovery failed: %s", exc)
                 universe = []
 
-        # Per-symbol indexes for the handler. _target_symbols mirrors
-        # realtime_forecasting so "symbol in target set" validation
-        # works uniformly.
+        # _target_symbols mirrors realtime_forecasting, so membership checks
+        # work the same way.
         self._market_metadata: dict[str, dict[str, Any]] = {}
         self._market_resolve_at: dict[str, datetime] = {}
         self._target_symbols: list[str] = []
@@ -202,12 +165,7 @@ class RealtimePolymarketTask(BaseTask):
         )
 
     def load_data(self) -> Any:
-        """No static dataset — the universe was materialised at __init__.
-
-        Returns the cached metadata dict to satisfy callers that expect
-        ``load_data()`` to return *something*. The verifier RPC exposes
-        the same payload via ``GET /markets/active``.
-        """
+        """No static dataset — the universe was materialised at __init__."""
         if self._data is None:
             self._data = {"markets": list(self._market_metadata.values())}
         return self._data
@@ -254,11 +212,5 @@ class RealtimePolymarketTask(BaseTask):
         return (self.load_data(), 0.0, True, {"single_shot": True})
 
     def evaluate(self, agent_actions: List[Any], **kwargs: Any) -> Dict[str, float]:
-        """Return a deferred placeholder.
-
-        Actual scoring happens out-of-band in the resolver after
-        markets resolve. Returns a marker so harbor's per-trial
-        scoring path sees a non-empty rewards dict (the resolver
-        overwrites it later).
-        """
+        """Return a deferred placeholder."""
         return {"status_deferred": 1.0, "reward": 0.0}

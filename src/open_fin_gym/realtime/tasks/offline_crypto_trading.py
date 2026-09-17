@@ -1,22 +1,4 @@
-"""Curated task: Offline Crypto Trading (Binance hourly replay).
-
-Multi-symbol sequential trading on historical Binance bars. Data is
-fetched on first use via ``BinanceProvider.get_bars()`` and cached as CSV
-under ``data/pipeline_output/datasets/binance_crypto_hourly_ohlcv/``.
-
-All replay machinery lives in
-:class:`~open_fin_gym.realtime.offline_trading._OfflineTradingTask`
-(shared with :class:`OfflineStockTrading`); this class only pins the
-Binance provider, cache directory, default symbol, and metadata.
-
-Interaction pattern (gym loop)::
-
-    obs = task.reset()
-    while not done:
-        action = agent.act(obs)   # {"action": "buy", "symbol": ..., "quantity": ...}
-        obs, reward, done, info = task.step(action)
-    rewards = task.evaluate(actions)
-"""
+"""Curated task: Offline Crypto Trading (Binance hourly replay)."""
 
 from open_fin_gym.realtime.offline_trading import _OfflineTradingTask
 from open_fin_gym.realtime.data_providers.binance import BinanceProvider

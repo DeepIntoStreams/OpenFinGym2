@@ -1,22 +1,4 @@
-"""Curated task: Realtime Crypto Forecasting via Binance API.
-
-Streaming **price prediction** on real-time BTC/USD market data. The
-agent submits an absolute future price (``predicted_price``) for
-``horizon_bars`` ahead and direction is *derived* server-side from
-``sign(predicted_price - entry_price)``. Direction-only submissions
-also work but score on directional metrics only (price metrics NaN
-out). Ground truth is deferred until the resolver service fetches the
-exit price after the prediction horizon elapses.
-
-No API key required -- uses the free Binance public API.
-
-Interaction pattern (gym loop, batch_mode=False):
-    obs = task.reset()                          # current market snapshot
-    while not done:
-        action = agent.act(obs)                 # {"symbol": ..., "predicted_price": ...}
-        obs, reward, done, info = task.step(action)  # records to ledger
-    rewards = task.evaluate(actions)            # {"status_deferred": 1.0, ...}
-"""
+"""Curated task: Realtime Crypto Forecasting via Binance API."""
 
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -32,11 +14,6 @@ _DEFAULT_DB = _RESULTS_DIR / "predictions.db"
 
 class RealtimeCryptoForecasting(RealtimeForecastingTask):
     """One-liner realtime forecasting on Binance crypto markets.
-
-    Pre-configured with sensible defaults so agent authors do not need to
-    manually wire the data provider and prediction ledger. The curated
-    bundle's ``run_evaluation_curated.py`` drives the gym loop via
-    :mod:`open_fin_gym.realtime.agent_runtime`.
 
     Args:
         config: Recognised keys (all optional, with defaults):
@@ -62,6 +39,7 @@ class RealtimeCryptoForecasting(RealtimeForecastingTask):
             - ``"headline_metric"``: which reward becomes the trial
               ``reward.json`` headline (default ``"price_mape"``). See
               :class:`RealtimeForecastingTask` for the full panel.
+
     """
 
     def __init__(

@@ -1,7 +1,7 @@
 """SQLite-backed prediction ledger for deferred evaluation.
 
-Stores predictions submitted by agents during realtime trading sessions.
-A separate resolver later fills in ground truth and rewards.
+Predictions land here first; the resolver fills in ground truth and rewards
+once their horizons close.
 """
 
 import json
@@ -46,15 +46,13 @@ CREATE INDEX IF NOT EXISTS idx_symbol_time
     ON predictions(symbol, submitted_at);
 """
 
-# Columns ADDed in-place if missing from an existing DB; existing rows
-# get NULL. SQLite ``ADD COLUMN`` is O(1) on metadata, so cheaper than
-# rebuilding the table.
+# Added in place when missing, leaving existing rows NULL; SQLite's ADD COLUMN
+# only touches metadata.
 _REQUIRED_COLUMNS: dict[str, str] = {
     "predicted_price": "REAL",
     "trial_dir": "TEXT",
-    # Bar interval the resolver fetches the exit price at (= the task's
-    # data_resolution). NULL on legacy rows / event-shape predictions →
-    # resolver falls back to "1m". Nullable so ADD COLUMN works in-place.
+    # Interval the resolver reads the exit price at; NULL on event rows, where
+    # it falls back to "1m".
     "resolution_interval": "TEXT",
 }
 
@@ -69,12 +67,8 @@ class PredictionLedger:
     def __init__(self, db_path: str | Path) -> None:
         self._db_path = Path(db_path)
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        # check_same_thread=False is required because the curated
-        # verifier (FastAPI) creates the ledger in on_startup but
-        # services requests on a different thread. Concurrent access
-        # is still safe: the verifier serialises writes under
-        # ``state.score_lock``, and the synchronous CLI uses a single
-        # thread anyway.
+        # The ledger is created on one thread and used from another, and writes
+        # are serialised by the caller, so the same-thread check is off.
         self._conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(_SCHEMA)
@@ -83,12 +77,8 @@ class PredictionLedger:
     def _migrate_columns(self) -> None:
         """Idempotent column-add migration for older ledger databases.
 
-        ``CREATE TABLE IF NOT EXISTS`` is a no-op when the table already
-        exists, so a column added to ``_SCHEMA`` after the DB was first
-        created would never be applied. We list the post-creation columns
-        in ``_REQUIRED_COLUMNS`` and ``ALTER TABLE ... ADD COLUMN`` any
-        that are missing. New columns must be nullable (no NOT NULL,
-        no non-constant default) — SQLite's ADD COLUMN forbids those.
+        New columns have to be nullable, since SQLite's ADD COLUMN rejects NOT NULL
+        and non-constant defaults.
         """
         existing = {
             row["name"]
@@ -101,9 +91,7 @@ class PredictionLedger:
                 )
         self._conn.commit()
 
-    # ------------------------------------------------------------------
-    # Write
-    # ------------------------------------------------------------------
+    # ── Write ────────────────────────────────────────────────────────────
 
     def submit(self, record: dict[str, Any]) -> str:
         """Store a prediction and return its id.
@@ -190,9 +178,7 @@ class PredictionLedger:
         )
         self._conn.commit()
 
-    # ------------------------------------------------------------------
-    # Read
-    # ------------------------------------------------------------------
+    # ── Read ─────────────────────────────────────────────────────────────
 
     def get_pending(self, before: datetime, limit: int = 100) -> list[dict[str, Any]]:
         """Return pending predictions whose resolve_at is before *before*."""
@@ -246,9 +232,7 @@ class PredictionLedger:
         counts["total"] = sum(counts.values())
         return counts
 
-    # ------------------------------------------------------------------
-    # Lifecycle
-    # ------------------------------------------------------------------
+    # ── Lifecycle ────────────────────────────────────────────────────────
 
     def close(self) -> None:
         self._conn.close()

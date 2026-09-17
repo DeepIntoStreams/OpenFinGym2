@@ -1,16 +1,7 @@
 """Shared base for the offline (historical-replay) trading tasks.
 
-``OfflineCryptoTrading`` and ``OfflineStockTrading`` are the same task fed
-by different providers, so all of the replay machinery lives here and the
-concrete tasks are thin shells that set the provider, cache directory,
-default symbols, and metadata strings.
-
-This is the historical-replay implementation of the data-source seam
-defined on :class:`~open_fin_gym.realtime.contracts.TradingTask`:
-the engine, reward, observation skeleton, and evaluation are all inherited
-from the base; only the per-symbol *market* observation block, the cursor
-over cached OHLCV, and the OHLC-bar execution quotes are specialised here.
-Order book is always ``None`` — historical bars carry no live book.
+Only the market observation block, the cursor over cached bars and the OHLC
+execution quotes are specialised; historical bars carry no order book.
 """
 
 from __future__ import annotations
@@ -54,12 +45,7 @@ def _parse_iso_date(value: str) -> datetime:
 
 
 def _ts_to_epoch(timestamps: Any) -> np.ndarray:
-    """Convert ISO-8601 timestamps to UTC epoch seconds.
-
-    Used by the extra-resolution slicer to align lower-frequency bars with
-    the current primary-frame step via ``numpy.searchsorted``. Missing /
-    invalid entries surface as ``0`` so they sort before any real timestamp.
-    """
+    """Convert ISO-8601 timestamps to UTC epoch seconds."""
     if timestamps is None:
         return np.zeros(0, dtype=np.int64)
     series = pd.Series(timestamps)
@@ -86,33 +72,7 @@ def _bars_to_df(bars: List[MarketSnapshot]) -> pd.DataFrame:
 
 
 class _OfflineTradingTask(TradingTask):
-    """Historical-replay trading over cached OHLCV.
-
-    Observation (per :class:`TradingTask`)::
-
-        {
-          "step": int, "steps_remaining": int,
-          "symbols": {sym: {symbol, price, open, high, low, close, volume,
-                            timestamp, return_1h, returns_5h, returns_20h,
-                            recent_bars, order_book(None)}},
-          "portfolio": {cash, reserved_cash, positions, pnl, value,
-                        pending_orders},
-        }
-
-    Action: transactional orders — ``{"action": "buy"|"sell"|"hold"|
-    "cancel", "symbol": str, "quantity": float, "order_type": ...,
-    "limit_price": ..., "stop_price": ..., "tif": ..., "order_id": ...}``
-    or ``{"orders": [...]}`` for a batch. Fractional quantities; shorting
-    allowed (symmetric 1x buying-power cap enforced by the executor).
-
-    Config keys: ``symbols``, ``context_resolutions`` / ``data_resolution``,
-    ``start`` / ``end`` (ISO; end exclusive), ``initial_cash`` (default
-    ``100000``), ``episode_length`` (default ``500``; ``0`` = full),
-    ``start_offset``, ``slippage_pct``, ``transaction_cost_pct``,
-    ``target_symbols`` (reward-scored subset; non-target trades allowed for
-    hedging but excluded from the headline metrics). ``provider`` kwarg
-    overrides the default provider.
-    """
+    """Historical-replay trading over cached OHLCV."""
 
     # ── Subclass seams ──────────────────────────────────────────────
     _CACHE_SUBDIR: str = ""  # datasets/ subdir for the CSV cache
@@ -399,14 +359,7 @@ class _OfflineTradingTask(TradingTask):
     def _slice_all_resolutions(
         self, symbol: str, primary_idx: int
     ) -> Dict[str, List[Dict[str, Any]]]:
-        """Per-interval recent-bars mapping for ``symbol``.
-
-        Includes the primary interval (sliced to ``context_bars`` rows
-        ending at ``primary_idx``) plus every configured extra interval
-        (sliced via ``np.searchsorted`` on epoch-second timestamps so the
-        lower-frequency window ends at the same wall-clock cutoff as the
-        primary). Each element is an OHLCV row dict.
-        """
+        """Per-interval recent-bars mapping for ``symbol``."""
         out: Dict[str, List[Dict[str, Any]]] = {}
         df = self._ohlcv[symbol]
         start = max(0, primary_idx - self._context_bars + 1)

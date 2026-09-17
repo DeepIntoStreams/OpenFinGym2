@@ -1,19 +1,4 @@
-"""Curated task: Realtime Crypto Trading via Binance API.
-
-Paper trading on real-time BTC/USD market data.  The agent receives a fresh
-price snapshot (plus recent bar history and order book) each step and
-submits buy/sell/hold actions with a quantity.  Rewards are immediate
-mark-to-market PnL.
-
-No API key required -- uses the free Binance public API.
-
-Interaction pattern (gym loop):
-    obs = task.reset()                          # market + positions snapshot
-    while not done:
-        action = agent.act(obs)                 # {"action": "buy", "symbol": ..., "quantity": ...}
-        obs, reward, done, info = task.step(action)  # executes via paper engine
-    rewards = task.evaluate(actions)            # Sharpe, drawdown, PnL, etc.
-"""
+"""Curated task: Realtime Crypto Trading via Binance API."""
 
 from typing import Any, Dict, Optional
 
@@ -32,9 +17,7 @@ class RealtimeCryptoTrading(RealtimeTradingTask):
     .. code-block:: python
 
         task = RealtimeCryptoTrading()
-        # Run a basic gym loop or use the in-container runner:
-        # open_fin_gym.realtime.agent_runtime
-        # .run_realtime_trading_trial
+        # Drive it with a plain gym loop.
 
     Args:
         config: Recognised keys (all optional, with defaults):
@@ -77,12 +60,8 @@ class RealtimeCryptoTrading(RealtimeTradingTask):
         target_symbols = config.get("target_symbols")
         initial_capital = float(config.get("initial_capital", 100000.0))
 
-        # execution_mode is intentionally not config-exposed for crypto:
-        # Binance has no paper-trading REST API analogous to Alpaca's
-        # paper-api.alpaca.markets, so "internal_paper" (in-process
-        # SimulatedExecutor against the live Binance feed) is the only
-        # mode this task can offer. Stock tasks (RealtimeStockTrading)
-        # DO expose this knob because Alpaca supports both modes.
+        # No execution_mode knob for crypto: Binance has no paper-trading API,
+        # so simulated fills against the live feed are the only option.
         trading_config = TradingConfig(
             slippage_pct=float(config.get("slippage_pct", 0.001)),
             transaction_cost_pct=float(config.get("transaction_cost_pct", 0.0)),
