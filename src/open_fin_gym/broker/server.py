@@ -6,6 +6,7 @@ from typing import Any
 import numpy as np
 from fastapi import FastAPI, HTTPException
 
+from open_fin_gym.realtime.resolver import resolve_and_score
 from open_fin_gym.realtime.tasks.offline_crypto_forecasting import (
     OfflineCryptoForecasting,
 )
@@ -74,6 +75,8 @@ def as_arrays(value: Any) -> Any:
 
 CONFIG_PATH = Path(os.environ.get("BROKER_CONFIG", "/broker/episode.json"))
 LEDGER_PATH = Path(os.environ.get("BROKER_LEDGER", "/ledger/episode.jsonl"))
+# How long /score may wait for deferred predictions to reach their horizon.
+SCORE_DEADLINE_SEC = float(os.environ.get("BROKER_SCORE_DEADLINE_SEC", "300"))
 
 TASKS = {
     "realtime_trading": RealtimeStockTrading,
@@ -131,7 +134,24 @@ def create_app() -> FastAPI:
 
     @app.get("/score")
     def score() -> dict:
-        return batch_score or task.evaluate(actions)
+        if batch_score:
+            return batch_score
+        rewards = task.evaluate(actions)
+        ledger = getattr(task, "_ledger", None)
+        if ledger is None or not ledger.get_summary().get("pending"):
+            return rewards
+        # Deferred tasks record predictions and stop, so resolve their
+        # horizons here rather than reporting a bare "deferred" marker.
+        resolved = resolve_and_score(
+            ledger, task._provider, deadline_sec=SCORE_DEADLINE_SEC
+        )
+        out = {**rewards, **resolved}
+        if not out.get("n_pending"):
+            out["status_deferred"] = 0.0
+        headline = getattr(task, "_headline_metric", None)
+        if headline in out:
+            out["reward"] = out[headline]
+        return out
 
     # Batch forecasting hands the agent every feature at once instead of
     # stepping, so it is served through its own pair of endpoints.

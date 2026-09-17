@@ -1,3 +1,4 @@
+import math
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Sequence
 
@@ -505,6 +506,141 @@ ALL_TRADING_REWARDS: list[type[TradingReward]] = [
 
 # Clamp probabilities away from {0, 1} for log-loss to avoid log(0).
 _LOG_LOSS_EPS = 1e-12
+
+# ── Event rewards: probability forecasts over binary outcomes ──────────────
+
+
+class EventReward(ABC):
+    """Compute a reward over (probability, binary-outcome) pairs.
+
+    Calibration metrics are naturally aggregate, so there is no per-trade
+    variant as on :class:`TradingReward`.
+    """
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+    @abstractmethod
+    def compute_aggregate(
+        self,
+        predictions: List[Dict[str, Any]],
+        ground_truths: List[Dict[str, Any]],
+    ) -> float:
+        """Return one score across all predictions, or 0.0 when there are none."""
+        raise NotImplementedError
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}(name={self.name!r})"
+
+
+def _event_pairs(
+    predictions: List[Dict[str, Any]],
+    ground_truths: List[Dict[str, Any]],
+) -> List[tuple[float, float]]:
+    """Zip into ``(probability, outcome)`` pairs, dropping unusable rows.
+
+    Ambiguous 0.5 outcomes are skipped here too, so a caller that forgets to
+    drop them upstream cannot skew the score.
+    """
+    pairs: List[tuple[float, float]] = []
+    for pred, gt in zip(predictions, ground_truths):
+        p, y = pred.get("predicted_yes_probability"), gt.get("outcome")
+        if p is None or y is None:
+            continue
+        try:
+            p_f, y_f = float(p), float(y)
+        except (TypeError, ValueError):
+            continue
+        if math.isnan(p_f) or math.isnan(y_f) or abs(y_f - 0.5) < 1e-9:
+            continue
+        pairs.append((p_f, y_f))
+    return pairs
+
+
+class EventBrierScore(EventReward):
+    """Mean squared error between probability and outcome, lower is better.
+
+    Ranges over ``[0, 1]``; a flat 0.5 prior on every market scores 0.25.
+    """
+
+    def __init__(self) -> None:
+        super().__init__("brier_score")
+
+    def compute_aggregate(
+        self,
+        predictions: List[Dict[str, Any]],
+        ground_truths: List[Dict[str, Any]],
+    ) -> float:
+        pairs = _event_pairs(predictions, ground_truths)
+        if not pairs:
+            return 0.0
+        return sum((p - y) ** 2 for p, y in pairs) / len(pairs)
+
+
+class EventLogLoss(EventReward):
+    """Binary cross-entropy, lower is better.
+
+    Probabilities are clipped away from 0 and 1 so a confident wrong call
+    scores large but finite.
+    """
+
+    def __init__(self) -> None:
+        super().__init__("log_loss")
+
+    def compute_aggregate(
+        self,
+        predictions: List[Dict[str, Any]],
+        ground_truths: List[Dict[str, Any]],
+    ) -> float:
+        pairs = _event_pairs(predictions, ground_truths)
+        if not pairs:
+            return 0.0
+        total = 0.0
+        for p, y in pairs:
+            q = min(max(p, _LOG_LOSS_EPS), 1.0 - _LOG_LOSS_EPS)
+            total += -(y * math.log(q) + (1.0 - y) * math.log(1.0 - q))
+        return total / len(pairs)
+
+
+class EventCalibrationError(EventReward):
+    """Expected calibration error over ten equal-width bins, lower is better.
+
+    Small samples and bin edges move it around, so read it next to Brier and
+    log-loss rather than alone.
+    """
+
+    _N_BINS = 10
+
+    def __init__(self) -> None:
+        super().__init__("expected_calibration_error")
+
+    def compute_aggregate(
+        self,
+        predictions: List[Dict[str, Any]],
+        ground_truths: List[Dict[str, Any]],
+    ) -> float:
+        pairs = _event_pairs(predictions, ground_truths)
+        if not pairs:
+            return 0.0
+        bins: Dict[int, List[tuple[float, float]]] = {}
+        for p, y in pairs:
+            # Clip so p == 1.0 lands in the top bin instead of overflowing.
+            idx = min(self._N_BINS - 1, max(0, int(p * self._N_BINS)))
+            bins.setdefault(idx, []).append((p, y))
+        ece = 0.0
+        for bucket in bins.values():
+            mean_p = sum(p for p, _ in bucket) / len(bucket)
+            mean_y = sum(y for _, y in bucket) / len(bucket)
+            ece += (len(bucket) / len(pairs)) * abs(mean_p - mean_y)
+        return ece
+
+
+ALL_EVENT_REWARDS: List[type[EventReward]] = [
+    EventBrierScore,
+    EventLogLoss,
+    EventCalibrationError,
+]
+
 
 
 class Loss:

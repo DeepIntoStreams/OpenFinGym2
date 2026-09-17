@@ -7,7 +7,12 @@ from open_fin_gym.realtime.rewards.reward_bank import (
     RMSELoss,
     MSELoss,
     Loss,
+    ALL_EVENT_REWARDS,
     DirectionAccuracy,
+    EventBrierScore,
+    EventCalibrationError,
+    EventLogLoss,
+    EventReward,
     MaxDrawdown,
     PnL,
     PriceMAE,
@@ -26,6 +31,11 @@ from open_fin_gym.realtime.rewards.reward_bank import (
 )
 
 __all__ = [
+    "ALL_EVENT_REWARDS",
+    "EventBrierScore",
+    "EventCalibrationError",
+    "EventLogLoss",
+    "EventReward",
     "R2Score",
     "PearsonCorrelation",
     "DirectionalAccuracy",
