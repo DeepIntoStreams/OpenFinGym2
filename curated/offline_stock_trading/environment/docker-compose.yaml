@@ -9,8 +9,10 @@ services:
     image: localhost/openfingym-broker
     pull_policy: never
     environment:
-      ALPACA_API_KEY: ${ALPACA_API_KEY}
-      ALPACA_SECRET_KEY: ${ALPACA_SECRET_KEY}
+      # Read straight from the host. Declaring them under task.toml's
+      # [environment.env] would also hand them to the agent's container.
+      ALPACA_API_KEY: ${ALPACA_API_KEY_ID}
+      ALPACA_SECRET_KEY: ${ALPACA_API_SECRET_KEY}
       BROKER_CONFIG: /broker/episode.json
     volumes:
       - ./episode.json:/broker/episode.json:ro
