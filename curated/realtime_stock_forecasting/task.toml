@@ -22,7 +22,7 @@ difficulty_explanation = "Requires acting on live US equities without look-ahead
 
 [verifier]
 environment_mode = "shared"
-timeout_sec = 600.0
+timeout_sec = 900.0
 
 [agent]
 timeout_sec = 1800.0

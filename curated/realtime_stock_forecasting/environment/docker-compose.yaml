@@ -14,6 +14,8 @@ services:
       ALPACA_API_KEY: ${ALPACA_API_KEY_ID}
       ALPACA_SECRET_KEY: ${ALPACA_API_SECRET_KEY}
       BROKER_CONFIG: /broker/episode.json
+      # Wait out the 5-minute forecast horizon so /score can settle it.
+      BROKER_SCORE_DEADLINE_SEC: "420"
     volumes:
       - ./episode.json:/broker/episode.json:ro
       - ledger:/ledger
