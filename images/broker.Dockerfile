@@ -1,5 +1,4 @@
-# Broker image: runs the market and trading stack behind the HTTP shell.
-# Build from the repository root:
+# Market and trading stack behind the broker. Build from the repository root:
 #   docker build -t openfingym-broker -f images/broker.Dockerfile .
 FROM python:3.12-slim
 
