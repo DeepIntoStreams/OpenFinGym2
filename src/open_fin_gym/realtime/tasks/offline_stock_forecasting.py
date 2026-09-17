@@ -1,21 +1,4 @@
-"""Curated task: Offline Stock Forecasting (Alpaca hourly OHLCV).
-
-Multi-symbol batch forecasting on Alpaca historical bars. Data is
-fetched on first use via ``AlpacaProvider.get_bars()`` and cached as
-CSV under ``data/pipeline_output/datasets/alpaca_stock_hourly_ohlcv/``.
-Subsequent runs load directly from the cache without touching the
-network.
-
-Requires Alpaca API keys (free IEX tier is sufficient). Set the
-``ALPACA_API_KEY`` and ``ALPACA_SECRET_KEY`` environment variables
-before the first fetch; cached runs work offline.
-
-Interaction pattern (``batch_mode=True``)::
-
-    features    = task.get_features()                   # {sym: (n_test, 10)}
-    predictions = agent.act(features)                   # {sym: (n_test,)}
-    rewards     = task.predict_and_evaluate(predictions) # per-symbol + aggregate
-"""
+"""Curated task: Offline Stock Forecasting (Alpaca hourly OHLCV)."""
 
 from datetime import datetime, timezone
 from pathlib import Path
@@ -49,9 +32,8 @@ _ROLLING_WINDOWS = [5, 20]
 # rolling_std_20h / momentum_20h). Sizes the expected head-NaN envelope.
 _MOMENTUM_SHIFT = 20
 
-#: Per-symbol metric panel, computed via the gt-at-init :class:`Loss`
-#: classes — same source of truth as the crypto variant and the auto-
-#: pipeline assembled evaluator.
+#: Per-symbol metric panel, computed through the :class:`Loss` classes, so the
+#: crypto variant and the assembled evaluator agree.
 _PANEL_LOSS_CLASSES: tuple[tuple[str, type], ...] = (
     ("mse", MSELoss),
     ("rmse", RMSELoss),
@@ -61,9 +43,8 @@ _PANEL_LOSS_CLASSES: tuple[tuple[str, type], ...] = (
     ("pearson", PearsonCorrelation),
 )
 
-#: Macro-aggregated keys (mean across :attr:`_target_symbols`). Only
-#: scale-free metrics are macro-averaged because cross-symbol price
-#: scales differ.
+#: Macro keys averaged across ``target_symbols``; only scale-free metrics, since
+#: price scales differ per symbol.
 _AGG_KEYS: tuple[str, ...] = ("mape", "r2", "pearson", "directional_accuracy")
 
 #: Allowed values for ``headline_metric`` in
@@ -97,10 +78,9 @@ def _parse_iso_date(value: str) -> datetime:
 def _parse_optional_split_date(value: Any) -> Optional[pd.Timestamp]:
     """Parse a user-supplied ``split_date`` config value (UTC).
 
-    Symmetric with the crypto-side helper — see
-    :func:`tasks.offline_crypto_forecasting.task._parse_optional_split_date`
-    for the contract. Kept in lock-step so a future shared base class
-    is a refactor and not a behavior change.
+    Raises:
+        ValueError: The value is malformed; accepting it would move the
+            train/test cutoff silently.
     """
     if value is None:
         return None
@@ -136,27 +116,6 @@ def _bars_to_df(bars: List[MarketSnapshot]) -> pd.DataFrame:
 class OfflineStockForecasting(ForecastingTask):
     """Predict an absolute future close price from OHLCV-derived features (Alpaca).
 
-    Features (10-dimensional, per symbol)::
-
-        return_1h, log_return_1h, rolling_mean_5h, rolling_std_5h,
-        rolling_mean_20h, rolling_std_20h, volume_change,
-        high_low_range, close_open_range, momentum_20h
-
-    Ground truth: absolute close price ``forecast_horizon_bars`` ahead.
-    See :class:`OfflineCryptoForecasting` for the rationale behind the
-    price-prediction framing (the crypto and stock variants are kept in
-    parallel so they can use independent providers / caches but share
-    the same agent contract and metric panel).
-
-    Metric panel: ``mse``, ``rmse``, ``mae``, ``mape``, ``r2``,
-    ``pearson``, ``directional_accuracy`` (per symbol + macro mean
-    over scale-free keys). Headline configurable; default ``mape``.
-
-    Train/test split: a *single* cutoff timestamp is shared across all
-    symbols, so the test window is calendar-aligned across staggered
-    listing dates. See :meth:`OfflineCryptoForecasting._resolve_cutoff`
-    for the rationale — the implementation is parallel.
-
     Args:
         config: Recognised keys (all optional, with defaults):
 
@@ -177,6 +136,7 @@ class OfflineStockForecasting(ForecastingTask):
               macro aggregate (default ``symbols``). Per-symbol scores
               are emitted for every input symbol regardless.
         provider: Override the default :class:`AlpacaProvider` (useful for tests).
+
     """
 
     def __init__(
@@ -385,11 +345,8 @@ class OfflineStockForecasting(ForecastingTask):
         self.load_data()
         return {sym: self._data[sym]["y_test"] for sym in self._symbols}
 
-    # The base ForecastingTask expects ``self._data`` to be a B-shape
-    # ``{'train': {...}, 'test': {...}}`` bundle, but our curated layout
-    # is ``{sym: {X_train, y_train, X_test, y_test, ...}}``. Override
-    # the train accessors so the curated verifier (and any agent calling
-    # ``predict_and_evaluate(split='train')``) can read training data.
+    # Curated data is keyed by symbol rather than the base class's
+    # train/test bundle, so the train accessors are overridden here.
     def get_train_features(self) -> Dict[str, np.ndarray]:
         self.load_data()
         return {sym: self._data[sym]["X_train"] for sym in self._symbols}
@@ -457,11 +414,7 @@ class OfflineStockForecasting(ForecastingTask):
         predictions: Dict[str, Any],
         ground_truth: Dict[str, Any],
     ) -> Dict[str, float]:
-        """Score price predictions through the gt-at-init Loss panel.
-
-        Mirrors :meth:`OfflineCryptoForecasting._score_dict`. See that
-        docstring for the per-symbol vs macro split rationale.
-        """
+        """Score price predictions through the gt-at-init Loss panel."""
         self.load_data()
         out: Dict[str, float] = {}
         for sym, gt_raw in ground_truth.items():

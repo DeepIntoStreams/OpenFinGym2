@@ -1,19 +1,7 @@
-"""RealtimeForecastingTask — ForecastingTask subclass for realtime / deferred-eval.
+"""RealtimeForecastingTask -- prediction against a live market feed.
 
-This task is fundamentally a forecasting task, not a trading task: the
-agent submits directional predictions (``long``/``short`` + confidence)
-and ground truth is resolved asynchronously by the :class:`ResolverService`
-after the prediction horizon has elapsed. No orders are executed, no
-portfolio state is maintained.
-
-Data flows as Python objects in-memory (no file I/O on the hot path).
-
-* ``reset()``   — fetches a fresh market snapshot via the data provider.
-* ``step()``    — records the agent's prediction in the ledger and returns
-                  the next market snapshot.  The step reward is always 0
-                  because ground truth is not yet available.
-* ``evaluate()`` — returns deferred-status metadata.  Actual rewards are
-                   computed later by the :class:`ResolverService`.
+Step rewards are always 0, because ground truth only exists once the horizon
+closes and the resolver fills it in.
 """
 
 import logging
@@ -34,12 +22,8 @@ from open_fin_gym.realtime.ledger import PredictionLedger
 logger = logging.getLogger(__name__)
 
 
-#: Headline-metric whitelist for ``RealtimeForecastingTask``. Covers the
-#: full price/return/directional panel produced by
-#: :data:`ALL_TRADING_REWARDS`. Both ``directional_accuracy``
-#: (handler-side spelling) and ``direction_accuracy`` (the reward
-#: class's ``.name`` attribute) are accepted; the handler resolves the
-#: per-spelling mismatch when reading the headline value.
+#: Headline metrics accepted for ``RealtimeForecastingTask``. Both spellings of
+#: directional accuracy are allowed, since the reward class and the caller differ.
 _VALID_REALTIME_HEADLINE: tuple[str, ...] = (
     "price_mape",
     "price_mse",
@@ -65,11 +49,9 @@ def _validate_target_symbols(
 ) -> list[str]:
     """Validate ``target_symbols`` is a non-empty subset of ``symbols``.
 
-    Returns ``symbols`` (a copy) when ``target_symbols`` is ``None`` or
-    empty so legacy configs behave unchanged. Raises ``ValueError`` if
-    the user passes a set that is not a subset of ``symbols`` — a typo
-    here is silent failure if we accept it (the resolver would never
-    find ground truth for the rogue symbol).
+    Raises:
+        ValueError: A target is missing from ``symbols``, which would otherwise
+            never resolve.
     """
     if not target_symbols:
         return list(symbols)
@@ -91,37 +73,16 @@ def _resolve_context_resolutions(
 ) -> tuple[str, int, tuple[tuple[str, int], ...], int]:
     """Validate ``context_resolutions`` + ``data_resolution`` config.
 
-    ``data_resolution`` selects the primary entry from
-    ``context_resolutions``; it controls the data buffer's primary
-    cadence + observation downsampling only. It does NOT gate the
-    gym-loop step rate — agents are free to call ``step()`` at any
-    frequency they wish.
+    Sidecar resolutions are downsampled from the primary buffer, never upsampled.
 
-    Returns ``(data_resolution_interval, data_resolution_bars, extras, primary_lookback)``:
-      - ``data_resolution_interval`` / ``data_resolution_bars``: the
-        privileged primary resolution that drives the buffer + observation
-        downsampling.
-      - ``extras``: tuple of ``(interval, bars)`` for the non-primary
-        entries, in user-supplied order. These are downsampled from
-        the primary buffer at observation time — they have no
-        independent fetch, no separate WebSocket sub.
-      - ``primary_lookback``: number of bars at the data resolution
-        that the primary buffer must hold so every sidecar window
-        (down-sampled from primary) is fully covered. This is
-        ``max(data_resolution_bars,
-        max(ex_bars * (ex_seconds / data_resolution_seconds)))``.
+    Args:
+        config: ``context_resolutions`` is a non-empty list of
+            ``{"interval": str, "bars": positive int}`` with unique intervals.
+            ``data_resolution`` is required once there are two or more entries,
+            must match one of them and must be the finest.
 
-    Validation:
-    * ``context_resolutions`` must be a non-empty list of
-      ``{"interval": str, "bars": positive int}`` dicts.
-    * Intervals must be unique within the list.
-    * ``data_resolution`` is **optional** when the list has exactly one
-      entry (that entry is used). **Required** when the list has 2+
-      entries, and must match exactly one entry's interval.
-    * ``data_resolution`` must be the **finest** interval among all
-      entries (in seconds). Sidecars are derived by downsampling from
-      the primary buffer; you cannot upsample a coarser stream into a
-      finer one.
+    Raises:
+        ValueError: Any of those conditions does not hold.
     """
     if not context_resolutions:
         raise ValueError(
@@ -179,9 +140,8 @@ def _resolve_context_resolutions(
 
     extras = tuple((iv, bb) for iv, bb in parsed if iv != data_resolution_interval)
 
-    # Sidecars are downsampled from the primary buffer, so data_resolution
-    # must be the finest interval. Compare in seconds (parse_interval
-    # tolerates equivalent spellings, but the seconds canonicalise it).
+    # Sidecars downsample from the primary buffer, so compare in seconds to
+    # confirm data_resolution really is the finest interval.
     data_resolution_seconds = interval_to_seconds(data_resolution_interval)
     if data_resolution_seconds <= 0:
         raise ValueError(
@@ -199,11 +159,8 @@ def _resolve_context_resolutions(
                 "derived by downsampling from the primary buffer."
             )
 
-    # Compute the primary lookback (in data-resolution bars) needed to
-    # span the deepest sidecar window. For each sidecar, that's
-    # bars * (ex_seconds / data_resolution_seconds). Lookback = the max
-    # across all, falling back to data_resolution_bars when no sidecars
-    # are configured.
+    # Primary lookback must span the deepest sidecar window, falling back to
+    # data_resolution_bars when there are no sidecars.
     primary_lookback = data_resolution_bars
     for ex_interval, ex_bars in extras:
         ex_seconds = interval_to_seconds(ex_interval)
@@ -222,38 +179,8 @@ def _resolve_context_resolutions(
 class RealtimeForecastingTask(ForecastingTask):
     """ForecastingTask wrapper around a realtime market data feed.
 
-    The agent produces directional / price predictions; ground truth is
-    deferred until the resolver service fetches the exit price after
-    the prediction horizon elapses. Inherits :class:`ForecastingTask`
-    because the interaction model is prediction, not sequential
-    trading. ``batch_mode = False`` — each :meth:`step` submits one
-    independent prediction (standard gym loop, not batch ``act``).
-
-    Parameters:
-
-    - ``provider``: data backend (Binance, Alpaca, ...).
-    - ``ledger``: :class:`PredictionLedger` for deferred evaluation.
-    - ``symbols``: input symbols in every observation.
-    - ``horizon_bars``: how far ahead the agent predicts, in bars of the
-      primary (``data_resolution``) interval. The exit price is the close
-      of the bar ``horizon_bars`` after the bar containing submission —
-      so resolution granularity follows ``data_resolution`` (1m bars →
-      minute-close target; 1d bars → daily-close target).
-    - ``context_resolutions``: non-empty list of
-      ``{"interval": str, "bars": positive int}`` entries. Sidecar
-      resolutions (anything other than ``data_resolution``) are
-      derived by **downsampling from the primary buffer** at observation
-      time — no extra fetch or WebSocket sub. The REST primer depth
-      auto-scales to span the deepest sidecar window.
-    - ``data_resolution``: which entry's interval drives the primary
-      buffer + REST stream + entry-price snapshots. Required when 2+
-      entries are given. **Must be the finest** interval (sidecars are
-      downsampled from it; no upsampling). This controls data buffering
-      and obs cadence only — agents step at whatever frequency they
-      want; ``data_resolution`` does not pace the gym loop.
-    - ``target_symbols``: subset scored by the resolver (default = all
-      symbols). Predictions for out-of-set symbols are dropped at
-      :meth:`step` with a warning.
+    One prediction per ``step`` (``batch_mode = False``); ``data_resolution`` sets
+    the buffering cadence and does not pace the agent's loop.
     """
 
     # Streaming interaction: each step submits one prediction with fresh
@@ -303,9 +230,8 @@ class RealtimeForecastingTask(ForecastingTask):
         self._context_bars = data_resolution_bars
         self._lookback_bars = primary_lookback
         self._extra_resolutions: tuple[tuple[str, int], ...] = extras
-        # Horizon is specified in bars of the primary (finest) resolution,
-        # mirroring offline's forecast_horizon_bars. The wall-clock minute
-        # span is derived for the ledger's horizon_minutes column + display.
+        # Horizon counts primary-resolution bars, as offline does; the minute
+        # span is derived for the ledger column.
         self._horizon_minutes = int(
             self._horizon_bars * interval_to_seconds(self._interval) / 60
         )
@@ -335,38 +261,19 @@ class RealtimeForecastingTask(ForecastingTask):
         )
 
     def get_features(self) -> Any:
-        """Return the current market observation as the feature set.
-
-        Realtime forecasting has no static feature matrix; each prediction is
-        made against the latest market snapshot. Callers that take the
-        batch forecasting path (``batch_mode=True``) will get a single
-        snapshot to predict from.
-        """
+        """Return the current market observation as the feature set."""
         if self._data is None:
             self.load_data()
         return self._build_observation()
 
     def get_ground_truth(self) -> Any:
-        """Ground truth is deferred for realtime forecasting.
-
-        Returns ``None`` because the actual outcomes are resolved
-        asynchronously by :class:`ResolverService` after the prediction
-        horizon elapses. The :meth:`evaluate` override returns a deferred
-        status dict instead of delegating to :meth:`predict_and_evaluate`.
-        """
+        """Ground truth is deferred for realtime forecasting."""
         return None
 
     def load_data(self) -> Any:
-        """Pre-fetch recent bar history for each symbol at the step
-        resolution.
+        """Pre-fetch recent bar history for each symbol at the step resolution.
 
-        The primer window is ``primary_lookback × data_resolution`` —
-        auto-scaled by :func:`_resolve_context_resolutions` to span the
-        deepest sidecar window so the primary history can be
-        downsampled into every sidecar's ``recent_bars_by_interval``
-        entry without fetching extra streams. Sidecars are NOT
-        independently fetched; they are derived on demand via
-        :func:`downsample_bars` in :meth:`_build_observation`.
+        Sidecar resolutions are derived on demand by downsampling, not fetched.
         """
         if self._data is not None:
             return self._data
@@ -435,16 +342,14 @@ class RealtimeForecastingTask(ForecastingTask):
     def step(self, action: Any) -> tuple[Any, float, bool, Dict[str, Any]]:
         """Record agent prediction, return next market snapshot.
 
-        ``action`` must include ``symbol`` plus at least one of
-        ``predicted_price`` (recommended) or ``direction`` (legacy
-        path). When both are supplied, ``direction`` must agree with
-        ``sign(predicted_price - entry_price)`` or :class:`ValueError`
-        is raised — silently overriding either field would mask agent
-        bugs. Predictions whose ``symbol`` is not in
-        :attr:`_target_symbols` are dropped with a warning (no ledger
-        write, no resolver work, ``info`` carries
-        ``"dropped_off_target": True``). The agent still advances a
-        step so the gym loop terminates on ``max_steps``.
+        Args:
+            action: ``symbol`` plus ``predicted_price`` (preferred) or ``direction``;
+                passing both requires that they agree. Predictions for symbols
+                outside ``target_symbols`` are dropped with a warning.
+
+        Raises:
+            ValueError: ``direction`` contradicts
+                ``sign(predicted_price - entry_price)``.
         """
         symbol = action["symbol"]
         if symbol not in self._target_symbols:
