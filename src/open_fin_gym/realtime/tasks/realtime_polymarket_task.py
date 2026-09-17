@@ -252,10 +252,10 @@ class RealtimePolymarketTask(BaseTask):
         }
 
     def step(self, action: Any) -> tuple[Any, float, bool, Dict[str, Any]]:
-        """Record the batch of YES probabilities and defer scoring.
+        """Record one batch of YES probabilities for deferred scoring.
 
-        Single-shot: *action* carries the whole universe at once, either as
-        ``{"predictions": [...]}`` or as a bare list, and ``done`` is True.
+        Args:
+            action: ``{"predictions": [...]}`` or a bare list; ``done`` is always True.
         """
         predictions = action.get("predictions") if isinstance(action, dict) else action
         if not isinstance(predictions, list):
