@@ -28,12 +28,13 @@ _DEFAULT_DB = _RESULTS_DIR / "polymarket_predictions.db"
 # Fallback discovery filters for programmatic use; bundles override them from
 # their own config.
 _DEFAULT_DISCOVERY: dict[str, Any] = {
-    "resolution_window_hours_min": 1,
-    "resolution_window_hours_max": 48,
+    "resolution_window_hours_min": 0.05,
+    "resolution_window_hours_max": 1.0,
     "min_yes_price": 0.01,
     "max_yes_price": 0.99,
-    "min_24h_volume_usd": 1000.0,
-    "min_orderbook_depth_usd": 100.0,
+    # Order-book liquidity, not 24h volume: a market opening minutes before it
+    # settles has no history, and those are the ones a trial can score.
+    "min_liquidity": 2000.0,
     "max_markets_per_trial": 20,
     "categories": [],
     "exclude_disputed": True,
