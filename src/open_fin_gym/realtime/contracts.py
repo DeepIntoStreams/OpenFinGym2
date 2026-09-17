@@ -13,20 +13,10 @@ from open_fin_gym.realtime.rewards import (
 
 
 def _import_bundled_loader(load_path: Path) -> Any:
-    """Import the per-task ``load.py`` deterministically from an absolute path.
+    """Import a task's bundled ``load.py`` from an absolute path.
 
-    Phase 4's loader codegen stages a task-aware ``load.py`` next to the
-    installed ``task.py`` (sibling files inside the Harbor environment's
-    ``data/`` directory). We import it via ``importlib.util`` rather than
-    a top-level ``import load`` so multiple tasks in the same process do
-    not collide on ``sys.modules["load"]``. Each call uses a unique
-    module name suffixed with the path's hash.
-
-    This helper lives in framework code (contracts.py) on purpose: the
-    LLM-generated task code is screened by an AST sandbox that blocks
-    ``importlib`` (see ``utils/sandbox.py``), so any dynamic import of
-    ``load.py`` must happen inside a base class the user code merely
-    inherits.
+    Each call uses a unique module name so tasks sharing a process do not
+    collide on ``sys.modules["load"]``.
     """
     import importlib.util
     import sys
@@ -42,16 +32,11 @@ def _import_bundled_loader(load_path: Path) -> Any:
 
 
 def _resolve_task_data_dir(task_obj: "BaseTask") -> Path:
-    """Locate the directory holding the task's bundled ``load.py``.
+    """Return the directory holding the task's bundled ``load.py``.
 
-    Priority: ``config["data_dir"]`` (explicit override, used by tests
-    and custom installs) -> the directory containing the subclass's
-    module file (the standard Harbor layout where ``task.py``,
-    ``load.py``, and the dataset payload live side by side).
-
-    Raising here is the right behaviour: a missing data dir means the
-    task package is broken, and the gym-loop fallbacks downstream
-    (``reset`` calling ``load_data``) cannot recover silently.
+    Raises:
+        FileNotFoundError: Neither ``config["data_dir"]`` nor the subclass's
+            own module directory exists, so the task package is broken.
     """
     import sys
 
@@ -98,22 +83,10 @@ class BaseTask(ABC):
         raise NotImplementedError
 
     def load_data(self) -> Any:
-        """Default loader: import the bundled per-task ``load.py``.
+        """Load the task's data via its bundled ``load.py``.
 
-        Phase 4's loader codegen stages a task-aware ``load.py`` next
-        to the installed ``task.py`` (sibling files inside the Harbor
-        environment's ``data/`` directory). The default ``load_data``
-        finds it via the subclass's module file, imports it
-        deterministically, calls ``load(data_dir)``, and caches the
-        resulting ``{"features": ..., "ground_truth": ...}`` dict on
-        ``self._data``.
-
-        Subclasses override only when their data flow does not match
-        this pattern (e.g. realtime tasks that stream from a market
-        feed instead of a static dataset). LLM-authored task packages
-        should leave this method alone — the AST sandbox blocks
-        ``importlib`` in user code, so attempts to reimplement this
-        body in ``task.py`` will fail static analysis.
+        Resolved from the subclass's module directory, so tasks do not share a
+        ``sys.modules`` entry.
         """
         if self._data is not None:
             return self._data
@@ -161,58 +134,19 @@ class BaseTask(ABC):
         predictions: Any,
         ground_truth: Any,
     ) -> Dict[str, Any]:
-        """Optional hook: return extra context keys for the evaluator.
+        """Return extra context keys merged into the evaluator's ``score`` call.
 
-        Default is empty. Tasks whose evaluator includes an
-        ``embedding_pair`` metric (e.g. ``EmbeddingFID``) override this to
-        return ``{"real_emb": ..., "fake_emb": ...}`` — the feature
-        extractor runs upstream so reward metrics stay model-free.
-        Returned keys are merged into the ``**kwargs`` passed to the
-        evaluator's ``score`` call via
-        :meth:`ForecastingTask.predict_and_evaluate` /
-        :meth:`GenerativeTask.generate_and_evaluate`.
+        Empty by default; tasks with an ``embedding_pair`` metric override it so
+        the feature extractor runs upstream and metrics stay model-free.
         """
         return {}
 
 
 class ForecastingTask(BaseTask):
-    """Task where the agent produces predictions scored against ground truth.
+    """Task whose predictions are scored against ground truth.
 
-    Forecasting has a fundamentally different interaction model from trading:
-    the agent produces predictions and the result is scored against ground
-    truth (which may be immediate for offline batch tasks or deferred for
-    realtime streaming tasks).
-
-    Two sub-patterns exist, controlled by :attr:`batch_mode`:
-
-    * ``batch_mode = True`` (default) -- **Offline batch forecasting**.
-      The agent receives the entire feature set in a single ``act()`` call
-      and returns all predictions at once.  The batch path bypasses the
-      gym loop and calls :meth:`predict_and_evaluate` directly.
-      Natural for historical datasets (ACL18, KDD17, Yahoo Finance).
-
-    * ``batch_mode = False`` -- **Streaming forecasting**.
-      The agent makes one prediction per ``step()`` call, each potentially
-      using fresh data (e.g. real-time market snapshots).  Predictions are
-      independent and ground truth may be deferred.  The runner uses the
-      standard gym loop.  Subclasses typically override ``reset``, ``step``,
-      and ``evaluate`` to handle their custom data source.
-
-    Subclasses must implement the usual :class:`BaseTask` abstract methods
-    (``metadata``, ``load_data``, ``get_observation_space``, ``get_action_space``)
-    plus :meth:`get_features` -- the feature set used for prediction.
-
-    Train accessors (``get_train_features`` / ``get_train_ground_truth``)
-    are concrete with defaults that read from the B-shape ``self._data``
-    bundle the auto-pipeline installs. Curated tasks may override.
-
-    :meth:`get_ground_truth` exists for back-compat with curated tasks
-    (which return ``y_test`` directly). Auto-generated tasks DO NOT
-    override it; the default implementation raises ``PermissionError``
-    so an agent-side caller cannot accidentally read the held-out test
-    target through the framework. The verifier reads test ground truth
-    from a separate ``/eval-data/test_ground_truth.h5`` artifact via
-    the assembled evaluator's ``_load_reference_data``.
+    :attr:`batch_mode` picks the shape: True predicts everything in one call
+    and bypasses the gym loop, False predicts once per ``step``.
     """
 
     # Runner dispatch flag; streaming subclasses (RealtimeForecastingTask)
@@ -228,21 +162,16 @@ class ForecastingTask(BaseTask):
 
     @abstractmethod
     def get_features(self) -> Any:
-        """Return the feature set the agent uses for prediction.
+        """Return the features the agent predicts on.
 
-        For auto-pipeline tasks this returns the **test** features only
-        (the agent's predictions on these are scored by the verifier).
-        For curated tasks it may return whatever the hand-written class
-        chooses.
+        Auto-pipeline tasks return the test features only; curated tasks choose.
         """
         raise NotImplementedError
 
     def get_train_features(self) -> Any:
-        """Training features for the agent to fit a model on.
+        """Return training features for the agent to fit on.
 
-        Default impl reads ``self._data["train"]["features"]`` (the
-        B-shape bundle the auto-pipeline installs). Curated tasks
-        override when their data flow does not match.
+        Reads ``self._data["train"]["features"]``; curated tasks may override.
         """
         if self._data is None:
             self.load_data()
@@ -255,11 +184,9 @@ class ForecastingTask(BaseTask):
         return self._data["train"]["features"]
 
     def get_train_ground_truth(self) -> Any:
-        """Training ground-truth labels for the agent to fit against.
+        """Return training labels for the agent to fit against.
 
-        Default impl reads ``self._data["train"]["ground_truth"]``. The
-        agent uses this to compute their training loss; nothing here
-        leaks the held-out test target.
+        Reads ``self._data["train"]["ground_truth"]``, never the test target.
         """
         if self._data is None:
             self.load_data()
@@ -272,22 +199,12 @@ class ForecastingTask(BaseTask):
         return self._data["train"]["ground_truth"]
 
     def get_ground_truth(self) -> Any:
-        """**DO NOT CALL FROM AGENT CODE.** Held-out test target.
+        """Held-out test target. **Do not call from agent code.**
 
-        For auto-pipeline tasks, calling this raises ``PermissionError``
-        — the test ground_truth is intentionally held out from the
-        agent and the framework's ``BaseTask.load_data`` populates
-        ``self._data["test"]["ground_truth"]`` with ``None`` to enforce
-        the contract. The verifier reads the real test target from
-        ``/eval-data/test_ground_truth.h5`` via the assembled
-        evaluator's ``_load_reference_data``.
-
-        Curated tasks (e.g. the hand-written ``OfflineStockForecasting``
-        class under ``tasks/offline_stock_forecasting/``) override this
-        method to return ``y_test`` directly. That's safe in the
-        curated path because curated tasks have their own
-        evaluation entry point and don't go through the
-        ``predict_and_evaluate(split=)`` gate.
+        Raises:
+            PermissionError: For auto-pipeline tasks, whose verifier reads the
+                real target from ``/eval-data/test_ground_truth.h5``. Curated
+                tasks override this and score through their own path.
         """
         raise PermissionError(
             "ForecastingTask.get_ground_truth() must not be called from "
@@ -304,24 +221,14 @@ class ForecastingTask(BaseTask):
         split: Optional[str] = None,
         **kwargs: Any,
     ) -> Dict[str, float]:
-        """Score ``predictions`` against ``split``'s ground truth.
+        """Score ``predictions`` against a split's ground truth.
 
-        ``split`` semantics:
-
-        * ``"train"`` -- score against ``self.get_train_ground_truth()``.
-          The agent uses this to sanity-check their model on training
-          data using the curated reward bank.
-        * ``"test"`` -- raises :class:`PermissionError`. Test scoring
-          is verifier-only.
-        * ``None`` (legacy) -- calls ``self.get_ground_truth()``. For
-          auto-pipeline tasks this raises ``PermissionError``; for
-          curated tasks that override ``get_ground_truth``, it falls
-          through to the historical "score against y_test" behaviour.
-
-        ``kwargs["reward_output"]``, when provided, MUST NOT point at
-        ``/logs/verifier/`` -- that is Harbor's canonical reward channel
-        and only the verifier writes there. We guard against accidental
-        pollution explicitly.
+        Args:
+            split: ``"train"`` scores against the training labels; ``"test"``
+                raises, as test scoring is verifier-only; ``None`` is the legacy
+                path through :meth:`get_ground_truth`.
+            kwargs: ``reward_output`` must stay out of ``/logs/verifier/``, which
+                only the verifier writes to.
         """
         if split == "test":
             raise PermissionError(
@@ -364,11 +271,9 @@ class ForecastingTask(BaseTask):
         return self._get_observation_at(0)
 
     def step(self, action: Any) -> tuple[Any, float, bool, Dict[str, Any]]:
-        """Compatibility shim: record prediction, advance index.
+        """Record a prediction and advance the cursor.
 
-        Forecasting tasks accumulate predictions; the real scoring happens
-        in :meth:`evaluate` / :meth:`predict_and_evaluate`. Per-step reward
-        is always ``0.0`` -- evaluation is inherently batch/deferred.
+        Reward is always 0.0; scoring happens in :meth:`evaluate`.
         """
         if self._done:
             raise RuntimeError(
@@ -383,11 +288,9 @@ class ForecastingTask(BaseTask):
         return obs, 0.0, self._done, {"prediction_idx": self._current_idx - 1}
 
     def evaluate(self, agent_actions: List[Any], **kwargs: Any) -> Dict[str, float]:
-        """Score ``agent_actions`` against ground truth via the evaluator.
+        """Score ``agent_actions`` through the wired evaluator.
 
-        Unlike the legacy trading-style ``evaluate`` which replays the
-        episode, this delegates to :class:`BaseEvaluator.score` when one
-        is wired, or falls back to a default scoring function.
+        Falls back to :meth:`_default_score` when no evaluator is set.
         """
         return self.predict_and_evaluate(agent_actions, **kwargs)
 
@@ -423,10 +326,9 @@ class ForecastingTask(BaseTask):
         return features
 
     def _default_score(self, predictions: Any, ground_truth: Any) -> Dict[str, float]:
-        """Fallback scorer used when no evaluator is wired.
+        """Score directional accuracy on flattened 1-D arrays.
 
-        Computes directional accuracy on flattened 1-D arrays. Returns an
-        empty result when either input is missing.
+        Returns an empty result when either input is missing.
         """
         if predictions is None or ground_truth is None:
             return {"directional_accuracy": 0.0}
@@ -446,31 +348,10 @@ class ForecastingTask(BaseTask):
 
 
 class GenerativeTask(BaseTask):
-    """Task where the agent generates samples scored against reference data.
+    """Task whose generated samples are scored against reference data.
 
-    Two sub-shapes are produced by the auto-pipeline:
-
-    * **Conditional generative** -- the LLM loader emits a B-shape bundle
-      ``{"train": {features, ground_truth}, "test": {features, ground_truth}}``
-      where ``features`` is conditioning and ``ground_truth`` is a real
-      reference sample. The verifier scores the agent's generated samples
-      against the held-out test reference; the agent fits using
-      :meth:`get_train_features` (train conditioning) and
-      :meth:`get_train_reference_data` (train real samples).
-
-    * **Unconditional generative** (``split_policy="no_split"``) -- the
-      LLM emits ``{"reference": ndarray}`` with no held-out target.
-      Distributional metrics like FID/KID compare the agent's
-      generated-sample distribution to the full reference distribution;
-      :meth:`get_reference_data` returns the full reference (agent and
-      verifier see the same data because there is no held-out
-      distinction).
-
-    Curated tasks override the legacy :meth:`get_reference_data` to
-    return the real reference directly. Auto-pipeline tasks DO NOT
-    override it for the conditional case (the default raises so the
-    held-out test reference is not exposed); they DO override it for
-    the unconditional case to point at ``self._data["reference"]``.
+    Conditional tasks score against a held-out reference; unconditional ones
+    compare distributions to the full reference.
     """
 
     batch_mode: bool = True
@@ -481,13 +362,11 @@ class GenerativeTask(BaseTask):
         self._generated_samples: list[Any] = []
 
     def get_reference_data(self) -> Any:
-        """**Held-out test reference** (conditional generative).
+        """Held-out test reference for conditional generative tasks.
 
-        Default implementation raises ``PermissionError`` for the same
-        reason as :meth:`ForecastingTask.get_ground_truth`: the test
-        reference is verifier-only in the auto-pipeline. Curated tasks
-        and unconditional-generative auto-pipeline tasks override this
-        to return the appropriate reference set.
+        Raises:
+            PermissionError: By default, as with :meth:`get_ground_truth`;
+                curated and unconditional tasks override it.
         """
         raise PermissionError(
             "GenerativeTask.get_reference_data() must not be called from "
@@ -628,15 +507,10 @@ class GenerativeTask(BaseTask):
 
 @dataclass
 class PortfolioState:
-    """Tracks a trading portfolio across steps.
+    """Trading portfolio carried across steps.
 
-    ``positions`` maps symbol -> quantity held (signed -- negative
-    means short). ``history`` records a chronological log of state
-    snapshots or trade events for auditing and metric computation.
-    ``pending_orders`` holds open limit/stop/stop_limit orders awaiting
-    a fill (only used in transactional offline mode); ``reserved_cash``
-    is the cumulative cash earmarked by those buy orders so successive
-    submissions can't double-spend.
+    ``positions`` is signed and ``reserved_cash`` earmarks cash for open buy
+    orders, so successive submissions cannot double-spend.
     """
 
     cash: float = 10000.0
@@ -646,10 +520,9 @@ class PortfolioState:
     reserved_cash: float = 0.0
 
     def market_value(self, prices: Optional[Dict[str, float]] = None) -> float:
-        """Total portfolio value given current ``prices``.
+        """Return total portfolio value at ``prices``.
 
-        When ``prices`` is ``None``, positions are valued at zero (useful
-        only for reporting cash-only balances).
+        ``prices`` of ``None`` values positions at zero, reporting cash only.
         """
         prices = prices or {}
         holdings_value = sum(
@@ -662,9 +535,7 @@ class PortfolioState:
 class TradingAction:
     """Structured trading action with quantity support.
 
-    Used by :class:`RealtimeTradingTask` for realtime paper trading.  Offline
-    :class:`TradingTask` continues to accept plain ``int`` actions
-    (``{-1, 0, 1}``) for backward compatibility.
+    Offline :class:`TradingTask` also accepts ``int`` actions in ``{-1, 0, 1}``.
     """
 
     action: str  # "buy" | "sell" | "hold"
@@ -685,14 +556,7 @@ class TradingAction:
         )
 
 
-# ---------------------------------------------------------------------------
-# Order-dispatch glue shared by every trading task (offline replay +
-# realtime live). Actions are transactional dicts (``{action, symbol,
-# quantity, order_type, limit_price, stop_price, tif, ...}`` or
-# ``{"orders": [...]}``); the executor matches market/limit/stop/stop_limit
-# with IOC or GTC, plus cancel. Offline passes an OHLC bar quote (intrabar
-# low/high triggering); realtime passes a scalar tick.
-# ---------------------------------------------------------------------------
+# ── Order dispatch, shared by offline replay and realtime ──────────────────
 
 
 def dispatch_orders_via_executor(
@@ -704,16 +568,16 @@ def dispatch_orders_via_executor(
     step: int,
     timestamp: Any = None,
 ) -> Dict[str, List[Dict[str, Any]]]:
-    """Process pending orders + dispatch a step's orders through a ``BaseExecutor``.
+    """Tick pending orders and dispatch this step's orders through an executor.
 
-    ``quotes`` maps symbol -> quote, where a quote is either a scalar tick
-    price (realtime) or an OHLC bar dict ``{open,high,low,close}`` (offline
-    replay) — ``SimulatedExecutor`` normalises both. This is the single
-    order-matching glue shared by the offline transactional path (and, in
-    the unified base, realtime); it replaces the old per-task
-    ``offline_submit_order`` / ``offline_process_pending_against_bars``
-    duplication. Returns ``{"fills", "accepted", "rejections", "expired"}``
-    as lists of dicts ready to drop into ``info``.
+    The single order-matching seam shared by offline replay and realtime.
+
+    Args:
+        quotes: Symbol to scalar tick price or OHLC bar dict; the executor
+            normalises both.
+
+    Returns:
+        ``{"fills", "accepted", "rejections", "expired"}`` ready for ``info``.
     """
     from open_fin_gym.realtime.execution import (
         ActionVerb,
@@ -816,13 +680,8 @@ def _trade_history_to_pairs(
 ) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """Adapt a trade-history stream into :class:`TradingReward` input pairs.
 
-    The per-step ``reward`` stored by :meth:`TradingTask.step` (or
-    :meth:`RealtimeTradingTask.step`) is already signed by
-    ``_execute_trade`` (e.g. ``position_delta * price_change`` offline,
-    ``total_pnl - prev_pnl`` realtime). Fixing ``direction="long"`` and
-    ``quantity=1.0`` makes :func:`PnL._pnl_list` degenerate to the
-    identity on that signed stream — any attempt to re-derive direction
-    from the action would double-count the sign on short losses.
+    Rewards are already signed, so direction is fixed to "long"; re-deriving
+    it would double-count the sign on short losses.
     """
     predictions: List[Dict[str, Any]] = []
     ground_truths: List[Dict[str, Any]] = []
@@ -838,16 +697,9 @@ def _compute_trading_metrics_from_history(
     *,
     count_label: str = "num_trades",
 ) -> Dict[str, float]:
-    """Shared metric helper for :class:`TradingTask` + :class:`RealtimeTradingTask`.
+    """Compute trading metrics from a trade-history stream.
 
-    Scalar stats (``total_return``, ``<count_label>``, ``mean_return``,
-    ``std_return``) are computed inline; the caller's ``reward_classes``
-    supply everything else (PnL, Sharpe, drawdown, win-rate, ...) via the
-    reward bank's ``compute_aggregate``. Each metric is keyed by its
-    ``.name`` attribute.
-
-    Per-fill / rejection / expiration audit rows (``kind`` keyed) are
-    skipped so they don't double-count alongside per-step aggregates.
+    Per-fill audit rows are skipped so they do not double-count.
     """
     aggregate_history = [e for e in history if "kind" not in e]
     returns = [float(entry["reward"]) for entry in aggregate_history]
@@ -877,24 +729,10 @@ def _compute_trading_metrics_from_history(
 
 
 class TradingTask(BaseTask):
-    """Task where the agent makes sequential trading decisions.
+    """Task where the agent trades sequentially and portfolio state carries over.
 
-    Trading has a fundamentally different interaction model from forecasting:
-    the agent observes an evolving market, executes orders, and portfolio
-    state carries between steps. The gym-style ``reset`` / ``step`` /
-    ``evaluate`` loop IS the natural interface here.
-
-    Subclasses must implement the standard :class:`BaseTask` abstracts
-    (``metadata``, ``load_data``, ``get_observation_space``, ``get_action_space``)
-    plus two new hooks:
-
-    * :meth:`_get_market_observation` -- build the current observation
-      (market state + portfolio state) used by the agent
-    * :meth:`_execute_trade` -- translate the agent's action into a trade,
-      return a per-step reward and an info dict
-
-    ``evaluate`` reads metrics from the accumulated ``_trade_history``
-    (NO episode replay).
+    Subclasses add :meth:`_get_market_observation` and :meth:`_execute_trade`;
+    ``evaluate`` reads ``_trade_history`` rather than replaying the episode.
     """
 
     def __init__(self, config: Optional[Dict[str, Any]] = None) -> None:
@@ -903,9 +741,7 @@ class TradingTask(BaseTask):
         self._step_count: int = 0
         self._done: bool = False
         self._trade_history: List[Dict[str, Any]] = []
-        # Per-symbol cumulative-PnL watermark; the per-step reward is the
-        # delta against it (reward[sym] = compute_pnl[sym] - prev). Shared
-        # by the offline + realtime per-step reward path.
+        # Per-symbol PnL watermark; each step's reward is the delta against it.
         self._prev_pnl_per_sym: Dict[str, float] = {}
 
     @property
@@ -916,11 +752,7 @@ class TradingTask(BaseTask):
     def trade_history(self) -> List[Dict[str, Any]]:
         return list(self._trade_history)
 
-    # ------------------------------------------------------------------
-    # Data-source seam — the ONLY per-task divergence (historical replay
-    # vs live feed). Everything else (order dispatch, reward, observation
-    # skeleton, evaluation) is shared below.
-    # ------------------------------------------------------------------
+    # ── Data-source seam: the only per-task divergence ──────────────────
 
     @abstractmethod
     def _current_prices(self) -> Dict[str, float]:
@@ -929,23 +761,19 @@ class TradingTask(BaseTask):
 
     @abstractmethod
     def _execution_quotes(self) -> Dict[str, Any]:
-        """Quote per symbol fed to the executor.
+        """Return the quote per symbol fed to the executor.
 
-        Offline returns an OHLC bar dict (``{open,high,low,close}``) so
-        limit/stop orders fill intrabar; realtime returns a scalar tick
-        (the in-progress bar's high/low aren't known yet).
-        :meth:`SimulatedExecutor._quote_bounds` normalizes both.
+        Offline passes an OHLC bar so stops fill intrabar; realtime passes a
+        scalar tick, since the running bar has no high or low yet.
         """
         raise NotImplementedError
 
     @abstractmethod
     def _market_observation_block(self) -> Dict[str, Dict[str, Any]]:
-        """Per-symbol market sub-block of the observation.
+        """Build the per-symbol market block of the observation.
 
-        The one genuinely agent-visible difference between offline and
-        realtime: offline carries closed-bar OHLCV + ``order_book: None``
-        (historical data has no book); realtime carries live
-        ``recent_bars`` + an ``order_book`` snapshot.
+        The one agent-visible difference: offline has closed bars and no order
+        book, realtime has live bars and a book snapshot.
         """
         raise NotImplementedError
 
@@ -966,18 +794,14 @@ class TradingTask(BaseTask):
     def close(self) -> None:
         """Release task resources. Default no-op (realtime overrides)."""
 
-    # ------------------------------------------------------------------
-    # Shared per-step engine + observation + reward (offline == realtime)
-    # ------------------------------------------------------------------
+    # ── Per-step engine, observation and reward, shared ─────────────────
 
     @staticmethod
     def _normalize_action(action: Any) -> List[Dict[str, Any]]:
         """Normalise an action into a list of single-order dicts.
 
-        Accepts a :class:`TradingAction`, a single ``{"action": ...}``
-        dict, a ``{"orders": [...]}`` batch, or a list/tuple of order
-        dicts. Anything else surfaces as one malformed entry so the
-        executor rejects it cleanly.
+        Anything unrecognised becomes one malformed entry for the executor to
+        reject.
         """
         if isinstance(action, TradingAction):
             return [
@@ -997,12 +821,10 @@ class TradingTask(BaseTask):
         return [{"action": "<malformed>", "raw": action}]
 
     def _execute_trade(self, action: Any) -> tuple[float, Dict[str, Any]]:
-        """Tick pending orders, dispatch the agent's orders, score the step.
+        """Tick pending orders, dispatch this step's orders and score the step.
 
-        Reward is the per-symbol ``compute_pnl`` delta against the previous
-        step's watermark, summed across symbols — identical for offline and
-        realtime. ``per_symbol_rewards`` is retained so ``evaluate`` can
-        scope the headline metrics to ``target_symbols``.
+        Reward is the per-symbol PnL delta against the previous watermark, summed
+        across symbols.
         """
         orders = self._normalize_action(action)
         quotes = self._execution_quotes()
@@ -1039,11 +861,9 @@ class TradingTask(BaseTask):
         }
 
     def _get_market_observation(self) -> Dict[str, Any]:
-        """Unified observation: per-symbol market block + portfolio block.
+        """Build the observation: per-symbol market block plus portfolio block.
 
-        The portfolio block is read straight from the executor and is
-        byte-identical across offline/realtime; the market block is the
-        per-task seam (see :meth:`_market_observation_block`).
+        The portfolio block is identical offline and realtime.
         """
         prices = self._current_prices()
         positions = self._executor.get_positions()
@@ -1071,9 +891,7 @@ class TradingTask(BaseTask):
             },
         }
 
-    # ------------------------------------------------------------------
-    # BaseTask contract -- concrete implementations
-    # ------------------------------------------------------------------
+    # ── BaseTask contract ───────────────────────────────────────────────
 
     def reset(self) -> Any:
         initial_cash = float(self.config.get("initial_cash", 10000.0))
@@ -1087,12 +905,9 @@ class TradingTask(BaseTask):
         return self._get_market_observation()
 
     def _sync_portfolio_from_executor(self) -> None:
-        """Mirror the executor's cash/positions/pending into PortfolioState.
+        """Mirror the executor's cash, positions and pending orders into state.
 
-        The transactional path runs order matching on ``self._executor``
-        (a :class:`SimulatedExecutor`); the observation reads
-        :class:`PortfolioState`, so we sync after each transactional step.
-        No-op when the subclass doesn't hold an executor (legacy / stub).
+        No-op when the subclass holds no executor.
         """
         ex = getattr(self, "_executor", None)
         if ex is None:
@@ -1105,12 +920,9 @@ class TradingTask(BaseTask):
         }
 
     def _on_step_start(self) -> None:
-        """Hook at the top of :meth:`step`, before the trade executes.
+        """Hook run at the top of :meth:`step`, before the trade executes.
 
-        Default no-op (offline replay needs nothing — the cursor advances
-        implicitly via ``_step_count``). :class:`RealtimeTradingTask`
-        overrides it to refresh the live market buffer so the reward and
-        the next observation reflect the freshest prices.
+        No-op offline; realtime overrides it to refresh the market buffer.
         """
 
     def step(self, action: Any) -> tuple[Any, float, bool, Dict[str, Any]]:
@@ -1130,9 +942,7 @@ class TradingTask(BaseTask):
                 **info,
             }
         )
-        # Per-fill / rejection / expiration audit rows (reward=0 so they
-        # don't double-count in the metric stream; evaluate() / the
-        # reward-bank helper skip ``kind``-tagged entries).
+        # Audit rows carry reward=0 and a ``kind`` tag, which scoring skips.
         for fill in info.get("fills", []):
             self._trade_history.append(
                 {"step": self._step_count, "kind": "fill", **fill, "reward": 0.0}
@@ -1156,9 +966,8 @@ class TradingTask(BaseTask):
                 }
             )
         self._done = bool(info.get("done", False))
-        # Episode-end auto-expire: GTC orders still queued are cancelled.
-        # Transactional offline routes orders through the executor; legacy
-        # {sym:int} never queues, so this is a no-op there.
+        # Cancel GTC orders still queued at episode end; legacy int actions
+        # never queue, so this is a no-op for them.
         if self._done:
             executor = getattr(self, "_executor", None)
             if executor is not None:
@@ -1182,12 +991,8 @@ class TradingTask(BaseTask):
         obs = self._get_market_observation() if not self._done else None
         return obs, float(reward), self._done, info
 
-    #: Reward-bank :class:`TradingReward` classes dispatched by
-    #: :meth:`_compute_trading_metrics`. Each produces one output key
-    #: named after the metric's ``.name`` attribute (``pnl``,
-    #: ``sharpe_ratio``, ``max_drawdown``, ``win_rate`` for the default
-    #: set). Subclasses extend with
-    #: ``(*TradingTask.DEFAULT_TRADING_REWARDS, MyReward)``.
+    #: Reward-bank classes dispatched by :meth:`_compute_trading_metrics`,
+    #: each keyed by its ``.name``. Subclasses extend the tuple.
     DEFAULT_TRADING_REWARDS: tuple[type[TradingReward], ...] = (
         PnL,
         SharpeRatio,
@@ -1196,15 +1001,10 @@ class TradingTask(BaseTask):
     )
 
     def evaluate(self, agent_actions: List[Any], **kwargs: Any) -> Dict[str, float]:
-        """Compute trading metrics from accumulated trade history.
+        """Compute trading metrics from the accumulated trade history.
 
-        Does NOT replay the episode -- reads from ``self._trade_history``
-        which is populated during :meth:`step`. Scalar stats
-        (``total_return``, ``num_trades``, ``mean_return``, ``std_return``)
-        are computed inline; distributional metrics go through the reward
-        bank via :attr:`DEFAULT_TRADING_REWARDS` (pure-Python, no torch).
-        ``total_pnl`` is the full PnL across *all* symbols (diagnostic);
-        the reward-bank metrics above are scoped to ``target_symbols``.
+        ``total_pnl`` covers all symbols as a diagnostic; reward-bank metrics are
+        scoped to ``target_symbols``.
         """
         metrics = self._compute_trading_metrics(self._trade_history)
         metrics["total_pnl"] = float(
@@ -1215,12 +1015,10 @@ class TradingTask(BaseTask):
     def _compute_trading_metrics(
         self, history: List[Dict[str, Any]]
     ) -> Dict[str, float]:
-        """Trading metrics from a trade-history stream.
+        """Compute trading metrics from a trade-history stream.
 
-        When ``target_symbols`` is a strict subset of ``symbols``, each
-        step's ``reward`` is replaced by the sum of its per-symbol
-        contributions across the target subset (the full history is kept
-        as audit log); otherwise the aggregate stream is scored directly.
+        With a strict ``target_symbols`` subset, each reward is replaced by its
+        contributions from that subset.
         """
         target = getattr(self, "_target_symbols", None)
         symbols = getattr(self, "_symbols", None)
@@ -1280,10 +1078,9 @@ class TaskEnvironmentAdapter:
 
 
 class BaseAgent(ABC):
-    """Interface for agents that interact with tasks via the gym API.
+    """Interface for agents that drive tasks through the gym API.
 
-    3rd-party agents implement this minimal protocol.  The only required
-    method is :meth:`act`; the lifecycle hooks are optional.
+    Only :meth:`act` is required; the lifecycle hooks are optional.
     """
 
     @abstractmethod
