@@ -22,7 +22,7 @@ difficulty_explanation = "Requires acting on live Polymarket prediction markets 
 
 [verifier]
 environment_mode = "shared"
-timeout_sec = 600.0
+timeout_sec = 1500.0
 
 [agent]
 timeout_sec = 1800.0
