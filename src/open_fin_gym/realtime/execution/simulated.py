@@ -1,50 +1,7 @@
 """In-house simulated execution engine with cash + pending-order queue.
 
-Works with any :class:`DataProvider` -- the engine only needs a market
-price, not a realtime data feed.  Applies configurable slippage and
-transaction costs.
-
-Cash & buying power
--------------------
-Cash starts at ``initial_capital``. Buying power is capped at **1x
-equity, symmetrically**: a buy reserves ``quantity * reference_price``
-from cash and is accepted only if free cash (``cash - reserved_cash``)
-covers it; a sell that opens or extends a short is accepted only if the
-resulting gross exposure (``Σ |position| * price`` plus pending
-commitments) stays within account equity (``cash + Σ position * price``).
-Covers and long-reductions never raise exposure and are always allowed.
-A naked sell still opens a **negative** position — the cap only bounds
-its size, mirroring the way the cash check bounds longs. Buy cash
-reservations and queued-short buying-power reservations are freed when
-the order fills (consumed) or is cancelled / expired (returned).
-
-Quotes
-------
-A "quote" passed to ``submit`` / ``tick`` is either a scalar tick price
-(realtime) or an OHLC bar dict ``{open,high,low,close}`` (offline
-replay). ``_quote_bounds`` normalises it to ``(low, high, ref)``: trigger
-checks use ``(low, high)`` so a bar can fill an order intrabar
-(``low <= limit <= high``); fills + reservations use ``ref`` (= close for
-a bar, = the price for a scalar). A scalar collapses to
-``low == high == ref`` so realtime behaviour is unchanged.
-
-Order types
------------
-``market`` fills synchronously at ``market_price`` adjusted by slippage
-(``buy: market * (1+s)``; ``sell: market * (1-s)``). The other three
-types ride the pending queue and are evaluated by :meth:`tick`:
-
-* ``limit``: fills when the latest price reaches the limit
-  (``buy: price <= limit_price``; ``sell: price >= limit_price``).
-  Pessimistic fill: at ``limit_price`` exactly, no price improvement.
-* ``stop``: triggers when the latest price crosses the stop
-  (``buy: price >= stop_price``; ``sell: price <= stop_price``); on
-  trigger fills synchronously at ``stop_price`` exactly.
-* ``stop_limit``: stop trigger first; once triggered, behaves as a
-  limit at ``limit_price``.
-
-PnL is computed from the trade log filtered to ``status=="filled"`` so
-rejected and expired entries don't pollute the metric.
+Works with any :class:`DataProvider`, since it only needs a price; covers and
+long-reductions never raise exposure and are always allowed.
 """
 
 from __future__ import annotations
@@ -108,9 +65,7 @@ class SimulatedExecutor(BaseExecutor):
         # the 1x buying-power cap (PnL/rewards still take explicit prices).
         self._last_price: dict[str, float] = {}
 
-    # ------------------------------------------------------------------
-    # BaseExecutor interface — submission lifecycle
-    # ------------------------------------------------------------------
+    # ── BaseExecutor interface — submission lifecycle ────────────────────
 
     def submit(
         self,
@@ -171,9 +126,8 @@ class SimulatedExecutor(BaseExecutor):
                 ),
             )
 
-        # Reference price for cash reservation: market_price for market,
-        # the trigger price for limit/stop (pessimistic — never reserve
-        # less than the trade could cost).
+        # Reserve against the trigger price for limit and stop orders, so the
+        # reservation never undershoots the cost.
         ref_price = self._reference_price_for_reservation(intent, ref)
         if ref_price is None or ref_price <= 0.0:
             return SubmitResult(
@@ -216,11 +170,8 @@ class SimulatedExecutor(BaseExecutor):
             position_reservation = 0.0
             cash_reservation = reservation
         else:  # sell / short
-            # Sells never reserve position. A sell that only reduces a long
-            # (new_pos >= 0) lowers exposure and is always allowed. A sell
-            # that opens/extends a short consumes buying power: the strict
-            # 1x cap rejects it if the resulting gross exposure (filled book
-            # + this short + pending commitments) would exceed equity.
+            # Reducing a long always passes; opening or extending a short is
+            # capped at 1x equity across filled and pending exposure.
             position_reservation = 0.0
             cash_reservation = 0.0
             current_pos = self._positions.get(intent.symbol, 0.0)
@@ -242,16 +193,13 @@ class SimulatedExecutor(BaseExecutor):
                             ),
                         ),
                     )
-                # A queued short reserves buying power for the exposure it
-                # *adds* (the net new short units), released on fill/cancel/
-                # expire like a buy reservation. Market/marketable shorts fill
-                # synchronously and never consume this.
+                # A queued short reserves only the exposure it adds, released
+                # like a buy reservation.
                 short_increase = abs(new_pos) - max(0.0, -current_pos)
                 cash_reservation = max(0.0, short_increase) * ref_price
 
-        # Market: synchronous fill, no reserve-then-release dance —
-        # debits cash + positions in one shot. Reservations only apply
-        # on the queue path below.
+        # Market orders fill synchronously, so they debit in one shot and skip
+        # the reservation path below.
         if intent.order_type == OrderType.MARKET:
             report = self._fill_market(
                 intent,
@@ -261,10 +209,8 @@ class SimulatedExecutor(BaseExecutor):
             )
             return SubmitResult(kind="filled", fill=report)
 
-        # Marketable limit: would fill at market under normal broker
-        # behaviour, but per the pessimistic convention we fill at
-        # limit_price exactly (no improvement). Matches what tick()
-        # would do on the next tick — kept here for sync-call parity.
+        # Marketable limits fill at the limit price with no improvement, which
+        # is what the next tick would do anyway.
         if intent.order_type == OrderType.LIMIT and self._is_limit_marketable(
             intent, low, high
         ):
@@ -277,9 +223,8 @@ class SimulatedExecutor(BaseExecutor):
             )
             return SubmitResult(kind="filled", fill=report)
 
-        # Marketable stop / stop_limit orders (already-triggered) have
-        # the same property; they fill synchronously at stop_price (or
-        # cascade to limit for stop_limit).
+        # Already-triggered stops fill the same way, at the stop price or
+        # cascading to the limit.
         if intent.order_type == OrderType.STOP and self._is_stop_triggered(
             intent, low, high
         ):
@@ -325,9 +270,8 @@ class SimulatedExecutor(BaseExecutor):
                 step=step,
                 reason_code="ioc_unfilled_on_submit",
             )
-            # IOC non-fill surfaces as rejection so the agent learns
-            # "this couldn't fill". No reservation was made, no release
-            # needed.
+            # An IOC that cannot fill is rejected outright; nothing was
+            # reserved, so nothing is released.
             return SubmitResult(
                 kind="rejected",
                 rejection=Rejection(
@@ -493,9 +437,7 @@ class SimulatedExecutor(BaseExecutor):
             out.append(expired)
         return out
 
-    # ------------------------------------------------------------------
-    # BaseExecutor interface — accessors
-    # ------------------------------------------------------------------
+    # ── BaseExecutor interface — accessors ───────────────────────────────
 
     def get_positions(self) -> dict[str, float]:
         return dict(self._positions)
@@ -542,21 +484,12 @@ class SimulatedExecutor(BaseExecutor):
         self._trade_log.clear()
         self._last_price.clear()
 
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
+    # ── Internal helpers ─────────────────────────────────────────────────
 
     def _equity_and_gross(
         self, symbol: str, new_position: float
     ) -> tuple[float, float]:
-        """Return ``(equity, projected_gross)`` for the 1x buying-power cap.
-
-        ``equity`` is the net liquidation value of the current book
-        (``cash + Σ position·price``); ``projected_gross`` is the absolute
-        notional ``Σ |position|·price`` with ``symbol`` set to
-        ``new_position``. Positions are valued at the last-seen quote per
-        symbol; ``symbol``'s own price was cached from this order's quote.
-        """
+        """Return ``(equity, projected_gross)`` for the 1x buying-power cap."""
         equity = self._cash
         gross = 0.0
         seen = False
@@ -594,14 +527,7 @@ class SimulatedExecutor(BaseExecutor):
 
     @staticmethod
     def _quote_bounds(quote: "float | dict[str, Any]") -> tuple[float, float, float]:
-        """Normalise a quote to ``(low, high, ref)``.
-
-        Scalar tick (realtime) -> ``(p, p, p)``. OHLC bar dict (offline
-        replay) -> ``(low, high, close)``. Trigger checks use
-        ``(low, high)`` (intrabar fills); fills + reservations use
-        ``ref``. The scalar case collapses to ``low == high == ref`` so
-        the realtime path is bit-identical to the pre-bar behaviour.
-        """
+        """Normalise a quote to ``(low, high, ref)``."""
         if isinstance(quote, dict):
             return (
                 float(quote["low"]),
@@ -681,9 +607,8 @@ class SimulatedExecutor(BaseExecutor):
         step: int,
         filled_step: int,
     ) -> ExecutionReport:
-        # Pessimistic: fill at limit_price exactly, no improvement.
-        # |executed - market| is still reported as nominal slippage_cost
-        # for audit even though limit semantics already cap the price.
+        # Fill at the limit exactly; the gap to market is still reported as
+        # nominal slippage for the audit trail.
         assert intent.limit_price is not None
         executed_price = float(intent.limit_price)
         return self._book_fill(
@@ -734,10 +659,8 @@ class SimulatedExecutor(BaseExecutor):
         timestamp: datetime,
         step: int,
     ) -> ExecutionReport:
-        # Free reservation BEFORE booking the fill — _book_fill debits
-        # actual cost from the unreserved pool. Reservation invariants
-        # (worst-case ref_price at queue time) guarantee post-release
-        # buckets always cover the fill.
+        # Release the reservation before booking, since the fill debits the
+        # unreserved pool and the worst-case reference always covers it.
         self._release_reservation(order)
         intent = OrderIntent(
             action=order.action,
@@ -791,9 +714,8 @@ class SimulatedExecutor(BaseExecutor):
             if self._reserved_cash < 0:
                 self._reserved_cash = 0.0
             self._cash -= notional + transaction_cost
-            # Symmetric with the sell branch: a buy-to-cover that lands
-            # flat (now reachable since shorting is allowed) drops the
-            # symbol rather than leaving a 0.0 entry.
+            # A buy-to-cover landing flat drops the symbol instead of leaving a
+            # zero entry, mirroring the sell branch.
             new_pos = self._positions.get(intent.symbol, 0.0) + intent.quantity
             if abs(new_pos) < 1e-12:
                 self._positions.pop(intent.symbol, None)

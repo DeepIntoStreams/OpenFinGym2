@@ -1,33 +1,7 @@
-"""Alpaca paper-trading executor — submits real orders to paper-api.alpaca.markets.
+"""Alpaca paper-trading executor: orders go to paper-api.alpaca.markets.
 
-Maintains a **local model** of broker state (positions, cost basis,
-cash) on the hot path, kept consistent with Alpaca by two parallel
-mechanisms:
-
-1. **WebSocket ``trade_updates`` stream** — real-time push of fill /
-   partial_fill / cancel / expire events. Primary source of state
-   mutations.
-2. **Background REST refresh** of ``/v2/positions`` + ``/v2/account``
-   every 5s — authoritative snapshot, corrects drift if the WS missed
-   an event.
-
-Read-path methods (``compute_pnl``, ``get_positions``, ``get_cash``,
-``get_pending_orders``) serve from the local model — zero network
-calls per ``step()``. Market-order ``submit()`` returns synchronously
-via a *provisional* booking at ``market_price``; the WS push
-(typically <100 ms later) replaces it with ``filled_avg_price`` and
-adjusts ``_cost_basis`` by the delta. ``tick()`` is a no-op (fills
-arrive via WS, not polling) — kept for interface parity with
-:class:`SimulatedExecutor`.
-
-Lifecycle: ``__init__`` runs a 3-way parallel REST sanity check
-(``/v2/account`` validates creds + seeds ``_cash``; positions + open
-orders MUST be empty). A "dirty" account is either flattened
-(``flatten_on_start=True``) or hard-fails (default). Dirty-start
-refusal is deliberate — residual positions carry a stale cost basis
-that would silently contaminate every PnL number. ``reset()``
-suspends the refresher, cancels open orders, closes positions, clears
-local state, and resumes. ``close()`` joins the two daemons.
+Fills arrive over the trade-updates WebSocket rather than polling, so ``tick``
+is a no-op kept for parity with :class:`SimulatedExecutor`.
 """
 
 from __future__ import annotations
@@ -124,25 +98,16 @@ class AlpacaPaperExecutor(BaseExecutor):
 
     _DEFAULT_REFRESH_INTERVAL: float = 5.0
 
-    # Poll budget for /v2/positions after DELETE during dirty-start
-    # flatten. Alpaca closes in-RTH positions within ~200ms; outside RTH
-    # the orders queue server-side and won't clear here — we log and
-    # proceed.
+    # Poll budget after the dirty-start flatten; outside regular hours the
+    # closes queue server-side and never clear here, so we log and proceed.
     _FLATTEN_POLL_TIMEOUT_SEC: float = 2.0
 
-    # Debounce window for the post-submit "validate sooner" nudge to the
-    # background reconciler. A burst of submits within this window
-    # coalesces to a single early reconcile — the WS is the primary fill
-    # source, so the 5s periodic reconcile plus an occasional nudge is
-    # ample. Caps extra REST volume against Alpaca's 200/min trading quota
-    # on fast-trading episodes.
+    # Debounce for the post-submit reconcile nudge, so a burst of orders costs
+    # one early check instead of one per order.
     _NUDGE_MIN_INTERVAL_S: float = 0.25
 
-    # Cash from /v2/account is synced only after this much quiet (no local
-    # fill touching cash). Shields a just-filled cash delta from being
-    # erased by the account aggregate's propagation lag; long enough to
-    # cover that lag, short enough that fill-less drift (fees/dividends/
-    # interest) still gets picked up between trades.
+    # Quiet period before cash syncs from REST, so the account aggregate's lag
+    # cannot erase a just-filled delta.
     _CASH_SYNC_IDLE_S: float = 3.0
 
     def __init__(
@@ -196,23 +161,19 @@ class AlpacaPaperExecutor(BaseExecutor):
         self._refresh_pause = threading.Event()  # set by reset() to suspend
         self._refresh_stop = threading.Event()  # set by close() to terminate
         self._last_nudge_ts: float = 0.0  # debounce for _nudge_refresh
-        # Monotonic time of the last LOCAL cash mutation (a fill). Gates the
-        # REST cash sync in _reconcile_with_rest so a lagging /v2/account
-        # snapshot can't erase a just-filled cash delta.
+        # Time of the last local cash change, gating the REST cash sync.
         self._cash_mut_ts: float = 0.0
 
-        # --------- Sanity check + dirty-start guard (in parallel) ----------
-        # All three calls are required for the dirty-start decision:
-        # "can't read state" must not silently read as "account is clean".
+        # All three calls are required: an unreadable account must not pass as
+        # a clean one.
         account, positions, open_orders = self._initial_snapshot_parallel()
         self._cash = float(account.get("cash", 0.0))
         self._last_rest_snapshot["account"] = account
         self._last_rest_snapshot["positions"] = positions
         self._last_rest_snapshot["ts"] = time.monotonic()
 
-        # Dirty-start guard: residual positions carry a cost basis from
-        # a prior session, and residual open orders can fill mid-this-
-        # session without the agent knowing. Either contaminates PnL.
+        # Residual positions carry a prior cost basis and residual orders can
+        # fill mid-session; either one contaminates PnL.
         residual_positions = [
             p
             for p in positions
@@ -239,9 +200,8 @@ class AlpacaPaperExecutor(BaseExecutor):
             )
             self._cash = post_flatten_cash
             self._last_rest_snapshot["positions"] = []
-        # Invariant: _positions / _cost_basis never seed from REST —
-        # they only reflect trades observed in THIS session, so PnL
-        # attribution stays honest across executor restarts.
+        # Positions and cost basis never seed from REST, so PnL only reflects
+        # trades this session observed.
 
         # --------- Launch daemon threads ----------
         self._refresher = threading.Thread(
@@ -257,10 +217,8 @@ class AlpacaPaperExecutor(BaseExecutor):
         )
         self._ws_listener.start()
 
-        # atexit hook to stop daemons before asyncio's internal threadpool
-        # tears down (else the WS reconnect emits "cannot schedule new
-        # futures after interpreter shutdown"). Captures Events only so
-        # self can still be GC'd normally.
+        # Stop the daemons before asyncio's threadpool tears down; it captures
+        # Events only, so self stays collectable.
         _refresh_stop = self._refresh_stop
         _refresh_event = self._refresh_event
 
@@ -271,32 +229,20 @@ class AlpacaPaperExecutor(BaseExecutor):
         atexit.register(_signal_stop_at_exit)
 
     def _nudge_refresh(self) -> None:
-        """Ask the background reconciler to validate sooner, debounced.
-
-        A burst of submits within :attr:`_NUDGE_MIN_INTERVAL_S` coalesces
-        to one early reconcile. Drift correction is at most one window
-        later than an un-debounced nudge — negligible against the 5s
-        periodic cadence — while extra REST volume stays bounded.
-        """
+        """Ask the background reconciler to validate sooner, debounced."""
         now = time.monotonic()
         if now - self._last_nudge_ts >= self._NUDGE_MIN_INTERVAL_S:
             self._last_nudge_ts = now
             self._refresh_event.set()
 
-    # ------------------------------------------------------------------
-    # Construction-time helpers
-    # ------------------------------------------------------------------
+    # ── Construction-time helpers ────────────────────────────────────────
 
     def _initial_snapshot_parallel(self) -> tuple[dict, list, list]:
-        """Fetch ``/v2/account``, ``/v2/positions`` and
-        ``/v2/orders?status=open`` concurrently.
+        """Fetch ``/v2/account``, ``/v2/positions`` and ``/v2/orders?status=open`` concurrently.
 
-        All three are required for the dirty-start decision, so
-        failure on any of them is fatal — we raise ``ValueError`` so
-        the executor never proceeds against an unknown broker state.
-        Returns ``(account, positions, open_orders)`` where positions
-        and open_orders are guaranteed to be lists (empty if the
-        endpoint returned a non-list payload).
+        Raises:
+            ValueError: Any of the three fails, since the dirty-start decision cannot
+                be made against an unknown account.
         """
         with ThreadPoolExecutor(
             max_workers=3, thread_name_prefix="alpaca-init"
@@ -399,22 +345,8 @@ class AlpacaPaperExecutor(BaseExecutor):
     ) -> float:
         """Cancel orders, close positions, poll until flat, re-read cash.
 
-        Shared REST core of :meth:`reset` and the dirty-start
-        :meth:`_flatten_account_inline`. Order matters: cancel orders
-        BEFORE closing positions so a GTC limit can't fire mid-close and
-        reopen a just-closed position. Each DELETE is independently
-        fault-tolerant. The position poll retries until
-        :attr:`_FLATTEN_POLL_TIMEOUT_SEC` — a transient GET failure counts
-        as "still dirty", never as a reason to stop waiting.
-
-        Out-of-hours, ``DELETE /v2/positions`` is accepted but the
-        liquidations queue until market open, so the poll times out
-        without seeing positions clear; we log and proceed (the
-        agent_runtime market-staleness pre-flight would already have
-        aborted a closed-market trial).
-
-        Returns the post-flatten cash. Falls back to the current local
-        ``_cash`` if ``/v2/account`` is unreadable (never zeroes it).
+        A failed poll counts as still dirty, and unreadable cash falls back to the
+        local value rather than zeroing it.
         """
         if delete_orders:
             try:
@@ -433,9 +365,7 @@ class AlpacaPaperExecutor(BaseExecutor):
                     "DELETE /v2/positions failed during flatten",
                     exc_info=True,
                 )
-        # Poll until positions report empty. Retry-until-deadline: a
-        # transient GET failure is treated as "still dirty", not a reason
-        # to abort the wait.
+        # A failed poll counts as still dirty rather than ending the wait.
         deadline = time.monotonic() + self._FLATTEN_POLL_TIMEOUT_SEC
         cleared = False
         remaining_count = 0
@@ -452,9 +382,8 @@ class AlpacaPaperExecutor(BaseExecutor):
                 remaining_count = len(positions)
             time.sleep(0.1)
         if not cleared:
-            # Out-of-hours queue or transient REST failures: Alpaca
-            # accepted the close but couldn't confirm empty in time. Log
-            # so operators can correlate any unexpected next-session PnL.
+            # Alpaca took the close but could not confirm it in time; log it so
+            # unexpected next-session PnL can be traced.
             logger.warning(
                 "flatten: positions did not confirm empty within %.1fs "
                 "(last seen %d). Proceeding; the next reset()/agent_runtime "
@@ -493,9 +422,7 @@ class AlpacaPaperExecutor(BaseExecutor):
             delete_positions=bool(expected_positions),
         )
 
-    # ------------------------------------------------------------------
-    # HTTP helpers
-    # ------------------------------------------------------------------
+    # ── HTTP helpers ─────────────────────────────────────────────────────
 
     def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
         url = f"{self._base}{path}"
@@ -558,26 +485,12 @@ class AlpacaPaperExecutor(BaseExecutor):
             return False, f"alpaca http error: {exc}"
         return True, None
 
-    # ------------------------------------------------------------------
-    # Background daemon: periodic REST reconciliation
-    # ------------------------------------------------------------------
+    # ── Background daemon: periodic REST reconciliation ──────────────────
 
     def _fetch_positions_and_account_parallel(
         self,
     ) -> tuple[Any, Any]:
-        """Issue ``GET /v2/positions`` and ``GET /v2/account`` concurrently.
-
-        Two separate Alpaca REST endpoints; can't be merged into a
-        single HTTP call. Dispatching them on two threads cuts the
-        wall-clock cost roughly in half (~200 ms → ~100 ms over the
-        wire) at the cost of running two simultaneous requests against
-        the trading API (well within the 200/min quota even at a 1 Hz
-        refresh).
-
-        Returns ``(positions, account)`` — same shape as if the two
-        calls had been issued sequentially. Either result may be
-        ``None`` if its request failed; the caller decides what to do.
-        """
+        """Issue ``GET /v2/positions`` and ``GET /v2/account`` concurrently."""
         with ThreadPoolExecutor(
             max_workers=2, thread_name_prefix="alpaca-acct"
         ) as pool:
@@ -596,16 +509,10 @@ class AlpacaPaperExecutor(BaseExecutor):
         return positions, account
 
     def _account_refresh_loop(self) -> None:
-        """Polls /v2/positions and /v2/account every refresh_interval_sec
-        (in parallel), compares with local model, corrects drift.
-        See ``_reconcile_with_rest``.
+        """Poll positions and cash, reconciling the local model against REST.
 
-        Catches ``BaseException`` (not just ``Exception``) inside the
-        loop body because during interpreter shutdown asyncio /
-        ThreadPoolExecutor internals can raise ``RuntimeError`` or
-        ``SystemExit`` that ``Exception`` doesn't cover. When that
-        happens we silently exit if ``_refresh_stop`` is set; otherwise
-        we best-effort log and continue.
+        Catches ``BaseException`` because interpreter shutdown can raise outside the
+        ``Exception`` hierarchy.
         """
         while not self._refresh_stop.is_set():
             if not self._refresh_pause.is_set():
@@ -623,50 +530,18 @@ class AlpacaPaperExecutor(BaseExecutor):
                         return
                     self._safe_log("debug", "account refresh failed", exc_info=True)
             try:
-                # Wait either for the periodic timer OR an immediate-refresh
-                # signal (set by submit/cancel/expire_all to nudge the
-                # reconciler to validate sooner).
+                # Wake on the periodic timer or on a nudge from submit, cancel
+                # or expire_all.
                 self._refresh_event.wait(timeout=self._refresh_interval_sec)
                 self._refresh_event.clear()
             except BaseException:
                 return
 
     def _reconcile_with_rest(self, positions: Any, account: Any) -> None:
-        """Detect divergence between the local model and the REST snapshot,
-        then resolve it via the authoritative order stream — never by
-        trusting the eventually-consistent ``/v2/positions`` aggregate.
+        """Detect divergence from the REST snapshot and resolve it from order history.
 
-        ``/v2/positions`` and ``/v2/account`` lag the order lifecycle:
-        right after a fill, ``GET /v2/orders/{id}`` already reports
-        ``filled`` while these aggregates can still return the pre-fill
-        snapshot for up to a few seconds. The previous policy (drop a
-        local position when REST showed none; overwrite cash from REST
-        unconditionally) clobbered a just-filled position/cash during
-        that window. Instead:
-
-        - **Positions** mutate ONLY from observed fills (WS
-          ``trade_updates`` + the order-history replay below). Any
-          local↔REST mismatch triggers
-          :meth:`_sync_orders_since_last_event`, which replays the order
-          events not yet processed. That replay is idempotent: a fill
-          already booked is a no-op (so propagation lag self-resolves),
-          while a genuinely missed fill or external close converges local
-          to the truth via the order stream. ``/v2/positions`` is never
-          allowed to drop or overwrite a position on its own — that is
-          the race the live test surfaced.
-        - **Cash** syncs from ``/v2/account`` only when the snapshot is
-          consistent with local (not divergent) AND no local fill has
-          touched cash within :attr:`_CASH_SYNC_IDLE_S`. The idle gate
-          stops a lagging account snapshot from erasing a just-filled
-          delta; the not-divergent gate stops a double-count when the
-          order-history replay is about to (re)book the very fill the
-          REST cash already reflects. Outside those windows the REST
-          value still catches slow fill-less drift (fees, dividends,
-          interest) that has no event-stream source.
-
-        Hot path is untouched: this runs on the background refresher; the
-        only added work is a divergence comparison and, when divergent,
-        one extra ``/v2/orders`` replay.
+        Positions are never dropped on the strength of ``/v2/positions`` alone, and
+        cash only syncs while idle, so a lagging snapshot cannot erase a fresh fill.
         """
         divergent = False
         with self._snapshot_lock:
@@ -716,36 +591,20 @@ class AlpacaPaperExecutor(BaseExecutor):
             )
             self._sync_orders_since_last_event()
 
-    # ------------------------------------------------------------------
-    # Background daemon: WebSocket trade_updates listener
-    # ------------------------------------------------------------------
+    # ── Background daemon: WebSocket trade_updates listener ──────────────
 
     def _trade_updates_loop(self) -> None:
         """Run the WS session in a fresh asyncio loop; reconnect on drop.
 
-        On reconnect (after any exception), we issue a one-shot REST
-        sync via /v2/orders?after=<_last_trade_event_ts> to replay any
-        fills we may have missed during the gap. `_handle_trade_update`
-        is idempotent via `_reported_order_ids`.
-
-        Catches ``BaseException`` because during interpreter shutdown
-        asyncio's internal ThreadPoolExecutor (used for DNS resolution
-        via getaddrinfo) can be torn down before our daemon thread
-        sees ``_refresh_stop``. The resulting ``RuntimeError: cannot
-        schedule new futures after interpreter shutdown`` doesn't
-        inherit from ``Exception`` cleanly across all Python versions,
-        and even if it did, ``logger.warning`` may itself fail during
-        shutdown. We short-circuit silently when shutting down.
+        Reconnection is decided by ``_refresh_stop``, not by whether the session
+        raised.
         """
         while not self._refresh_stop.is_set():
             try:
                 asyncio.run(self._trade_updates_session())
             except BaseException:  # noqa: BLE001 — daemon thread isolation
-                # Most WS errors are now caught inside the coroutine
-                # (see _trade_updates_session). This block only fires
-                # when asyncio.run itself fails — typically only
-                # during interpreter shutdown. Bail silently in that
-                # case.
+                # The session coroutine handles its own errors, so this only
+                # fires if asyncio.run itself fails during shutdown.
                 if self._refresh_stop.is_set():
                     return
                 self._safe_log(
@@ -778,10 +637,8 @@ class AlpacaPaperExecutor(BaseExecutor):
     def _safe_log(level: str, msg: str, *, exc_info: bool = False) -> None:
         """Best-effort logger call that swallows any error.
 
-        Used inside daemon-thread exception handlers. During interpreter
-        shutdown the logging module can itself fail (file handles
-        closed, lock acquisition raises). Suppressing here keeps the
-        traceback from escaping the daemon.
+        Logging itself can fail during interpreter shutdown, and a traceback escaping
+        the daemon thread is worse than a lost line.
         """
         try:
             getattr(logger, level)(msg, exc_info=exc_info)
@@ -791,13 +648,8 @@ class AlpacaPaperExecutor(BaseExecutor):
     async def _trade_updates_session(self) -> None:
         """Single-pass WS session: auth, subscribe, dispatch updates.
 
-        All exceptions are caught inside this coroutine and converted
-        to a normal return. This prevents asyncio's default exception
-        handler from logging the traceback to stderr when the WS drops
-        (or when interpreter shutdown races our connection attempt).
-        The outer ``_trade_updates_loop`` decides whether to reconnect
-        based on ``_refresh_stop``, not on whether this coroutine
-        raised.
+        Exceptions are handled here so asyncio does not print a traceback when the
+        socket drops.
         """
         import websockets  # optional dependency
 
@@ -833,21 +685,15 @@ class AlpacaPaperExecutor(BaseExecutor):
                         payload = _json.loads(raw)
                     except ValueError:
                         continue
-                    # Alpaca wraps trade_updates in {"stream": "trade_updates",
-                    # "data": {...event payload...}}. Tolerate the bare-event
-                    # shape too (some test fixtures use that).
+                    # Alpaca wraps events in a stream envelope; the bare shape is
+                    # tolerated for fixtures.
                     data = payload.get("data") if isinstance(payload, dict) else None
                     if data is None:
                         data = payload
                     self._handle_trade_update(data)
         except BaseException:  # noqa: BLE001 — daemon thread isolation
-            # Swallow ALL exceptions, including the
-            # "cannot schedule new futures after interpreter shutdown"
-            # RuntimeError that asyncio internals can raise during
-            # Python teardown. If we're shutting down we just return;
-            # otherwise we log at debug (warning would be too noisy for
-            # routine reconnect cycles) and let the outer loop's sleep
-            # + retry handle it.
+            # Swallow everything, including the shutdown-time RuntimeError from
+            # asyncio internals, and let the outer loop retry.
             if not self._refresh_stop.is_set():
                 self._safe_log(
                     "debug",
@@ -856,20 +702,7 @@ class AlpacaPaperExecutor(BaseExecutor):
                 )
 
     def _handle_trade_update(self, msg: dict[str, Any]) -> None:
-        """Apply a single trade_updates event to the local model.
-
-        Recognised events:
-        - ``fill`` / ``partial_fill``: apply the fill (update position,
-          cost basis, cash) and surface in the trade log. If a
-          PROVISIONAL entry already exists for this order_id from
-          ``submit()``, update it in-place; otherwise append a new
-          FILLED entry.
-        - ``canceled`` / ``expired`` / ``rejected``: append a record
-          with the matching status; pop from _local_pending.
-
-        Idempotent via _reported_order_ids — duplicate WS pushes
-        (network retry, reconnect gap-fill) are no-ops.
-        """
+        """Apply a single trade_updates event to the local model."""
         if not isinstance(msg, dict):
             return
         event = str(msg.get("event", ""))
@@ -889,9 +722,7 @@ class AlpacaPaperExecutor(BaseExecutor):
             self._apply_fill_event(order, order_id)
         elif event in ("canceled", "cancelled", "expired", "rejected"):
             self._apply_terminal_non_fill(order, order_id, event)
-        # Other events (new, accepted, pending_new, etc.) are
-        # informational only — local state already reflects the
-        # provisional booking from submit().
+        # Other events are informational: submit already booked provisionally.
 
     def _apply_fill_event(self, order: dict[str, Any], order_id: str) -> None:
         symbol = str(order.get("symbol", ""))
@@ -932,10 +763,8 @@ class AlpacaPaperExecutor(BaseExecutor):
             # Already processed this fill? (e.g., duplicate WS push or
             # reconnect REST gap-fill replaying).
             if order_id in self._reported_order_ids:
-                # If a matching trade-log entry still has PROVISIONAL
-                # status, upgrade it to FILLED with the real price.
-                # (Common case: submit booked provisional, WS arrived,
-                # we processed it once; then a duplicate push arrives.)
+                # Upgrade a still-provisional entry to the real fill price,
+                # which also makes duplicate pushes harmless.
                 self._upgrade_provisional_to_filled_locked(
                     order_id,
                     real_price=filled_avg_price,
@@ -968,10 +797,8 @@ class AlpacaPaperExecutor(BaseExecutor):
                 prov.status = OrderStatus.FILLED
                 prov.timestamp = ts
             else:
-                # No matching provisional → fill arrived before submit
-                # finished (race) OR this is a fill for an order from a
-                # prior session OR a partial_fill for a not-yet-booked
-                # remainder. Apply as a fresh fill.
+                # Nothing provisional to match: the fill beat submit, or belongs
+                # to another session, so apply it fresh.
                 self._book_fill_locked(
                     symbol=symbol,
                     side=side,
@@ -985,11 +812,8 @@ class AlpacaPaperExecutor(BaseExecutor):
                     ts=ts,
                 )
 
-            # Mark order_id as processed and drop any local pending
-            # entry. (partial_fill conceptually shouldn't drop pending
-            # — but Alpaca's paper engine almost always fills market
-            # orders in one shot, so the simplification is OK for the
-            # curated bundles.)
+            # Dropping pending on a partial fill is a simplification: the paper
+            # engine fills market orders in one shot.
             self._reported_order_ids.add(order_id)
             self._local_pending.pop(order_id, None)
 
@@ -1128,11 +952,7 @@ class AlpacaPaperExecutor(BaseExecutor):
         prov.status = OrderStatus.FILLED
 
     def _sync_orders_since_last_event(self) -> None:
-        """REST gap-fill on WS reconnect.
-
-        Fetches /v2/orders updated since `_last_trade_event_ts` and
-        replays each through _handle_trade_update. Idempotent.
-        """
+        """REST gap-fill on WS reconnect."""
         params: dict[str, Any] = {"status": "all", "limit": 200}
         if self._last_trade_event_ts:
             params["after"] = self._last_trade_event_ts
@@ -1165,9 +985,7 @@ class AlpacaPaperExecutor(BaseExecutor):
             }
             self._handle_trade_update(synthetic)
 
-    # ------------------------------------------------------------------
-    # BaseExecutor interface — submission lifecycle
-    # ------------------------------------------------------------------
+    # ── BaseExecutor interface — submission lifecycle ────────────────────
 
     def submit(
         self,
@@ -1279,16 +1097,11 @@ class AlpacaPaperExecutor(BaseExecutor):
         order_id = str(order["id"])
 
         if intent.order_type == OrderType.MARKET:
-            # Provisional booking at market_price. The WS trade_updates
-            # push will arrive shortly with the real filled_avg_price
-            # and adjust the local model in-place. Synchronous-fill
-            # contract preserved for callers: we return kind="filled"
-            # with an ExecutionReport, just with status=PROVISIONAL.
+            # Book provisionally at the market price and still report a fill, so
+            # callers keep their synchronous contract until the WS corrects it.
             with self._snapshot_lock:
-                # Race guard: if WS already reported this order (rare
-                # but possible with very fast paper fills), skip
-                # provisional booking — the WS handler already booked
-                # the real fill.
+                # Skip the provisional booking when the WS already reported this
+                # order, which fast paper fills can do.
                 if order_id in self._reported_order_ids:
                     real_idx = self._find_trade_log_idx_by_order_id(order_id)
                     if real_idx is not None:
@@ -1356,10 +1169,8 @@ class AlpacaPaperExecutor(BaseExecutor):
                     stop_price=None,
                     tif=TimeInForce.GTC,
                 )
-            # WS push will arrive shortly to confirm the cancel; the
-            # handler is idempotent via _reported_order_ids. We don't
-            # eagerly record the cancellation here to avoid duplicating
-            # the audit log entry the WS handler will write.
+            # Leave the audit entry to the WS handler, which is idempotent, so
+            # the cancel is not logged twice.
         return CancelResult(kind="cancelled", cancelled=order)
 
     def tick(
@@ -1369,18 +1180,7 @@ class AlpacaPaperExecutor(BaseExecutor):
         step: int = 0,
         timestamp: datetime | None = None,
     ) -> TickResult:
-        """No-op for AlpacaPaperExecutor.
-
-        Fills, cancels, and expirations are pushed via the WebSocket
-        ``trade_updates`` listener. ``prices`` is unused. Method is
-        retained for interface parity with :class:`BaseExecutor` /
-        :class:`SimulatedExecutor`; callers (e.g.,
-        :class:`RealtimeTradingTask`) invoke it once per step and
-        consume whatever it returns. An empty TickResult is correct
-        here because all fill notifications have already been applied
-        to the local model by the WS daemon by the time the gym loop
-        reads from it.
-        """
+        """No-op for AlpacaPaperExecutor."""
         return TickResult()
 
     def expire_all(
@@ -1390,18 +1190,7 @@ class AlpacaPaperExecutor(BaseExecutor):
         step: int = 0,
         timestamp: datetime | None = None,
     ) -> list[ExecutionReport]:
-        """Cancel every locally-tracked open order on Alpaca.
-
-        Per-order ``DELETE /v2/orders/{id}`` calls dispatch in parallel
-        via a transient thread pool. Each DELETE is independent on
-        Alpaca's side (different order ids, different responses); the
-        local-state mutations (pop from ``_local_pending``, append to
-        ``_trade_log``, add to ``_reported_order_ids``) happen under
-        ``_snapshot_lock`` per order, so cross-order concurrency is
-        safe. Wall-clock collapses from ``O(K_pending × RTT)`` to
-        ``O(RTT)`` at episode end — large win for trials that
-        accumulate many open limit/stop orders.
-        """
+        """Cancel every locally-tracked open order on Alpaca."""
         ts = timestamp or datetime.now(timezone.utc)
         out: list[ExecutionReport] = []
         with self._snapshot_lock:
@@ -1414,9 +1203,8 @@ class AlpacaPaperExecutor(BaseExecutor):
             ok, err = self._delete_or_4xx(f"/v2/orders/{oid}")
             return oid, ok, err
 
-        # Transient pool — expire_all runs once per episode end, so
-        # per-call setup cost is negligible. Worker count capped at 8
-        # to avoid bursting Alpaca's order-rate limit too hard.
+        # Transient pool, capped at 8 workers so the episode-end cancels do not
+        # burst Alpaca's order-rate limit.
         with ThreadPoolExecutor(
             max_workers=min(len(order_ids), 8),
             thread_name_prefix="alpaca-expire",
@@ -1428,10 +1216,8 @@ class AlpacaPaperExecutor(BaseExecutor):
                     order = self._local_pending.pop(order_id, None)
                     if order is None:
                         continue
-                    # Synthesize an EXPIRED entry; the WS handler is
-                    # idempotent so if it later pushes a "canceled" event
-                    # for the same order it will be a no-op (the order_id
-                    # is in _reported_order_ids by then).
+                    # Synthesise the expiry here; a later "canceled" push is a
+                    # no-op because the handler is idempotent.
                     report = ExecutionReport(
                         action=order.action,
                         symbol=order.symbol,
@@ -1456,9 +1242,7 @@ class AlpacaPaperExecutor(BaseExecutor):
         self._refresh_event.set()
         return out
 
-    # ------------------------------------------------------------------
-    # BaseExecutor interface — accessors (all read from local model)
-    # ------------------------------------------------------------------
+    # ── BaseExecutor interface — accessors (all read from local model) ───
 
     def get_positions(self) -> dict[str, float]:
         with self._snapshot_lock:
@@ -1487,13 +1271,7 @@ class AlpacaPaperExecutor(BaseExecutor):
         return total
 
     def compute_pnl(self, current_prices: dict[str, float]) -> dict[str, float]:
-        """Pure local PnL computation: ``current_price * qty - cost_basis - tx_total``.
-
-        Uses fresh WS-fed prices (passed in from the buffer) against
-        locally-tracked positions and cost basis. Zero network calls.
-        See class docstring for the reconciliation policy that keeps
-        the local model honest.
-        """
+        """Pure local PnL computation: ``current_price * qty - cost_basis - tx_total``."""
         pnl: dict[str, float] = {}
         total = 0.0
         with self._snapshot_lock:
@@ -1513,23 +1291,10 @@ class AlpacaPaperExecutor(BaseExecutor):
         return pnl
 
     def reset(self) -> None:
-        """Cancel open orders, close all positions on Alpaca, and clear
-        local state.
+        """Cancel open orders, close all positions on Alpaca, and clear local state.
 
-        Sequence:
-        1. Suspend the REST refresher (so a concurrent refresh doesn't
-           overwrite our just-cleared state with Alpaca's pre-DELETE
-           snapshot).
-        2. Flatten the broker via :meth:`_flatten_and_reread_cash`
-           (DELETE orders → DELETE positions → poll empty → re-read cash).
-           Orders are cancelled before positions so a GTC limit can't fire
-           mid-close and reopen a freshly-closed position.
-        3. Under lock: clear all local model state and adopt the fresh
-           cash.
-        4. Resume refresher; force an immediate refresh.
-
-        The REST flatten is fault-tolerant (failures logged, not raised);
-        the local-state clear always runs.
+        The REST flatten logs failures rather than raising, but the local clear always
+        runs.
         """
         self._refresh_pause.set()
         try:
@@ -1564,9 +1329,7 @@ class AlpacaPaperExecutor(BaseExecutor):
         except Exception:
             pass
 
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
+    # ── Internal helpers ─────────────────────────────────────────────────
 
     @staticmethod
     def _reverse_alpaca_type(raw: str) -> str:

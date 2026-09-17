@@ -1,31 +1,7 @@
 """RealtimeTradingTask -- real-time paper trading with immediate rewards.
 
-The live-feed implementation of the :class:`TradingTask` data-source seam:
-the shared base owns the per-step engine (tick → dispatch → reward), the
-observation skeleton, and evaluation; this subclass only supplies the live
-data source — a :class:`DataProvider` + :class:`MarketDataBuffer`
-(REST + WebSocket) — and an execution engine (:class:`SimulatedExecutor`
-or :class:`AlpacaPaperExecutor`).
-
-Action surface — single order, or ``{"orders": [...]}`` for a batch::
-
-    {
-      "action": "buy" | "sell" | "hold" | "cancel",
-      "symbol": str,
-      "quantity": float,
-      "order_type": "market" | "limit" | "stop" | "stop_limit",  # default "market"
-      "limit_price": float | None,
-      "stop_price": float | None,
-      "tif": "ioc" | "gtc",     # default "gtc"; ignored for market/hold
-      "order_id": str,           # required only for action="cancel"
-    }
-
-The per-step flow (``executor.tick`` → dispatch orders → reward =
-per-symbol ``compute_pnl`` delta, with episode-end ``expire_all``) lives in
-:meth:`TradingTask._execute_trade`. Realtime feeds the executor *scalar*
-ticks (not OHLC bars — the in-progress bar's high/low aren't known yet) and
-refreshes the buffer once at the top of each step via
-:meth:`_on_step_start`.
+The executor sees scalar ticks rather than OHLC bars, because a running bar has
+no high or low yet.
 """
 
 from __future__ import annotations
@@ -65,39 +41,14 @@ logger = logging.getLogger(__name__)
 class RealtimeTradingTask(TradingTask):
     """Realtime paper-trading task with immediate PnL-based rewards.
 
-    Parameters:
-
-    - ``provider``: data backend (Binance, Alpaca, ...).
-    - ``symbols``: symbols to trade.
-    - ``trading_config``: slippage, transaction costs, execution mode.
-    - ``initial_capital``: starting cash for SimulatedExecutor
-      (default 100000.0). Ignored for ``execution_mode="alpaca_paper"``
-      — the real paper account's cash is the source of truth.
-    - ``context_resolutions``: non-empty list of
-      ``{"interval": str, "bars": positive int}`` entries. The
-      ``data_resolution`` entry drives the *only*
-      :class:`MarketDataBuffer` (latest-price lookups, PnL, WebSocket
-      sub, dataset shipping). Sidecars are **downsampled from this
-      single buffer** at observation time — no per-sidecar buffer or
-      extra subs. Buffer depth auto-scales to the deepest sidecar.
-    - ``data_resolution``: which entry's interval drives the primary
-      buffer + WebSocket sub + execution price + dataset shipping.
-      Required when 2+ entries are given. **Must be the finest
-      interval** (sidecars are downsampled from it; no upsampling).
-      This controls data buffering only — agents call ``step()`` at
-      whatever frequency they want; ``data_resolution`` does not pace
-      the gym loop.
-    - ``buffer_size``: per-symbol buffer capacity.
-    - ``max_steps``: max steps per episode (0 = unlimited).
-    - ``target_symbols``: subset whose trades feed eval (default =
-      all). Non-target trades are allowed at :meth:`step` (for
-      hedging on input-only context symbols) but
-      :meth:`evaluate` filters ``_trade_history`` to target trades.
+    Args:
+        config: ``data_resolution`` must be the finest interval, as sidecars are
+            downsampled from it, and it paces buffering only -- agents step at
+            whatever frequency they like. ``buffer_size`` bounds the retained bars.
     """
 
-    #: See :attr:`TradingTask.DEFAULT_TRADING_REWARDS`. Same default set;
-    #: reward-bank dispatch happens once per ``evaluate()`` call, not in
-    #: :meth:`step` — so per-tick latency is untouched.
+    #: Same set as :attr:`TradingTask.DEFAULT_TRADING_REWARDS`, dispatched once
+    #: per ``evaluate`` rather than per step.
     DEFAULT_TRADING_REWARDS: tuple[type[TradingReward], ...] = (
         PnL,
         SharpeRatio,
@@ -105,13 +56,8 @@ class RealtimeTradingTask(TradingTask):
         WinRate,
     )
 
-    #: Staleness budgets (ms) for the WS-fed buffer before the per-step
-    #: REST fallback fires. With Binance @aggTrade pushing per-trade
-    #: (sub-100ms cadence on liquid pairs) and @depth20@100ms pushing
-    #: order book every 100ms, these TTLs are 5-10× the expected push
-    #: interval — generous enough that healthy WS never trips them, yet
-    #: tight enough that silent WS death surfaces within one TTL window.
-    #: REST fallback then closes the gap until WS reconnect succeeds.
+    #: Staleness budgets (ms) before the REST fallback fires, set at 5-10x the
+    #: expected push interval so only a dead socket trips them.
     PRICE_STALENESS_TTL_MS: float = 500.0
     OB_STALENESS_TTL_MS: float = 1000.0
 
@@ -137,9 +83,8 @@ class RealtimeTradingTask(TradingTask):
         self._trading_config = trading_config or TradingConfig()
         self._max_steps = max_steps
         self._initial_capital = float(initial_capital)
-        # Sidecar resolutions downsample from the single primary buffer
-        # at observation time — no extra buffers, no extra WS subs.
-        # _lookback_bars auto-scales to the deepest sidecar window.
+        # Sidecars downsample from the one primary buffer, so there are no extra
+        # subscriptions and the lookback scales to the deepest window.
         if context_resolutions is None:
             context_resolutions = [{"interval": "1m", "bars": 60}]
         (
@@ -177,18 +122,14 @@ class RealtimeTradingTask(TradingTask):
         self._step_count: int = 0
         self._done: bool = False
         self._trade_history: List[Dict[str, Any]] = []
-        # Persistent pool for per-symbol REST fan-out. Sized 2× symbols
-        # so price + order-book fetches dispatch concurrently. Persistent
-        # avoids the per-step pool-creation cost (~50-200 µs); daemon
-        # workers don't block process exit.
+        # Persistent pool sized for price and order-book fetches per symbol, so
+        # no pool is rebuilt each step.
         self._fetch_pool = ThreadPoolExecutor(
             max_workers=max(4, len(self._symbols) * 2),
             thread_name_prefix="rtt-fetch",
         )
 
-    # ------------------------------------------------------------------
-    # BaseTask abstract implementations
-    # ------------------------------------------------------------------
+    # ── BaseTask abstract implementations ────────────────────────────────
 
     def metadata(self) -> TaskMetadata:
         sym_label = "_".join(self._symbols[:3])
@@ -204,25 +145,17 @@ class RealtimeTradingTask(TradingTask):
         )
 
     def load_data(self) -> Any:
-        """Backfill the (single) MarketDataBuffer via REST and start
-        streaming. Sidecar resolutions are derived by downsampling
-        this buffer at observation time, so no per-sidecar fetch or
-        WebSocket sub is needed.
+        """Backfill the (single) MarketDataBuffer via REST and start streaming.
 
-        After kicking off the WS streamer, this also waits up to 5 s
-        for the WS to push its first message per symbol. Hitting the
-        timeout is not fatal — backfill is already in place and the
-        observation hot path tolerates a cold WS via REST fallback —
-        but the wait pays the warmup cost once at startup so the first
-        few `step()` calls don't each take the latency hit individually.
+        A warmup timeout is not fatal: backfill is already in place and the hot path
+        falls back to REST.
         """
         if self._data is not None:
             return self._data
         self._buffer.backfill()
         stream_thread = self._buffer.start_streaming_background()
-        # Only wait for warmup if a streaming thread was launched —
-        # mock / WS-less providers return None and would just burn the
-        # full timeout per test.
+        # Skip the warmup wait when no stream was launched, or a WS-less
+        # provider would burn the whole timeout.
         if stream_thread is not None:
             warm = self._buffer.wait_for_warmup(timeout=5.0)
             if not warm:
@@ -298,30 +231,21 @@ class RealtimeTradingTask(TradingTask):
         self._prev_pnl_per_sym = {}
         if self._data is None:
             self.load_data()
-        # WS stream is just starting up; one-shot REST poll seeds the
-        # initial observation. Subsequent obs read whatever is freshest
-        # in the buffer (WS push or per-step REST refresh).
+        # One REST poll seeds the first observation while the stream starts;
+        # later ones read whatever is freshest in the buffer.
         self._refresh_prices_from_provider()
         return self._get_market_observation()
 
     def _on_step_start(self) -> None:
-        # ONE provider fetch per step (was duplicated in _execute_trade
-        # and _get_market_observation). Ensures the reward in step N
-        # matches the prices in obs(N+1)'s recent_bars[-1] exactly,
-        # instead of drifting by one RTT. The shared base ``step()``
-        # (TradingTask) owns the trade-log + episode-end-expire loop;
-        # this hook supplies the only realtime-specific pre-step work.
+        # One provider fetch per step, so step N's reward and the next
+        # observation agree instead of drifting by a round trip.
         self._refresh_prices_from_provider()
 
-    # ------------------------------------------------------------------
-    # Data-source hooks (the live-feed seam; engine/reward/eval are in the
-    # shared TradingTask base).
-    # ------------------------------------------------------------------
+    # ── Data-source hooks (the live-feed seam; engine/reward/eval are in the ─
 
     def _market_observation_block(self) -> Dict[str, Dict[str, Any]]:
-        # NOTE: provider price fetch happens once at the top of `step()`
-        # (and once in `reset()`), not here. The buffer is the single
-        # source of truth for current prices on the read path.
+        # Prices are fetched at the top of ``step``, not here; the buffer is the
+        # only source on the read path.
         sym_obs: Dict[str, Dict[str, Any]] = {}
         for symbol in self._symbols:
             latest = self._buffer.get_latest_price(symbol)
@@ -337,9 +261,8 @@ class RealtimeTradingTask(TradingTask):
                 "order_book": order_book,
             }
             if self._extra_resolutions:
-                # Multi-resolution view: sidecars downsample from the
-                # primary buffer's _lookback_bars history, so they stay
-                # in sync with every WS update — no extra fetch.
+                # Sidecars downsample the primary history, so they follow every
+                # WS update without another fetch.
                 by_interval: dict[str, list[Any]] = {self._interval: recent}
                 full_history = self._buffer.get_recent_bars(symbol, self._lookback_bars)
                 for ex_interval, ex_bars in self._extra_resolutions:
@@ -351,9 +274,8 @@ class RealtimeTradingTask(TradingTask):
         return sym_obs
 
     def _execution_quotes(self) -> Dict[str, float]:
-        # Realtime feeds the executor SCALAR ticks — the in-progress bar's
-        # high/low aren't known yet, so no OHLC bounds (and AlpacaPaper
-        # never receives a bar dict). _quote_bounds collapses scalar→(p,p,p).
+        # The executor gets scalar ticks: a running bar has no high or low yet,
+        # so there are no OHLC bounds to pass.
         return self._current_prices()
 
     def _market_timestamp(self) -> Any:
@@ -378,36 +300,8 @@ class RealtimeTradingTask(TradingTask):
     def _refresh_prices_from_provider(self) -> None:
         """TTL-gated REST fallback for price + order book.
 
-        In steady state, the WS-fed buffer carries fresh data
-        (BinanceProvider's ``@aggTrade`` pushes per trade,
-        ``@depth20@100ms`` pushes the OB every 100ms). REST is only
-        useful when the buffer hasn't received a recent push — i.e.,
-        cold start, WS reconnecting, or the rare server-side stall.
-        So we read the buffer's staleness clock first and only dispatch
-        REST when ``staleness_ms > TTL``.
-
-        Per-symbol fan-out:
-        - ``get_current_price`` — dispatched when
-          ``buffer.price_staleness_ms(sym) > PRICE_STALENESS_TTL_MS``.
-        - ``get_order_book`` — dispatched when
-          ``buffer.ob_staleness_ms(sym) > OB_STALENESS_TTL_MS``
-          *and* the provider exposes ``get_order_book``.
-
-        REST results are applied through the same callbacks the WS
-        uses (``insert_bar`` / ``_on_order_book``) so the staleness
-        clocks tick forward identically regardless of source.
-
-        Race guard: a WS push could land while a REST call is in
-        flight. After receiving the REST response we re-check
-        staleness; if it's already under the TTL again (meaning WS
-        won the race), we skip the apply rather than overwriting the
-        fresher WS data with the stale-by-now REST snapshot.
-
-        Steady-state cost when WS healthy: zero REST calls, no thread-
-        pool dispatch, ~microseconds per symbol for the staleness
-        check. Worst case (WS dead): identical to the prior
-        per-step-REST behavior, modulo one extra dict read per
-        symbol.
+        Staleness is re-checked after the response lands, so a WebSocket push that won
+        the race is not overwritten.
         """
         if not self._symbols:
             return
@@ -444,13 +338,8 @@ class RealtimeTradingTask(TradingTask):
                 )
                 continue
             if kind == "price":
-                # Race guard: if WS landed a fresh bar between our
-                # REST dispatch and result, skip the REST apply (WS
-                # value is at least as fresh and authoritative).
-                # Comparison is ``>=`` so TTL=0 (used by tests as the
-                # "always-REST" sentinel) consistently applies the
-                # REST result even when the staleness delta is below
-                # the timer's resolution floor.
+                # Skip the REST apply when a WS bar landed meanwhile; ``>=`` keeps
+                # TTL=0 applying REST even below the timer's resolution.
                 if self._buffer.price_staleness_ms(sym) >= self.PRICE_STALENESS_TTL_MS:
                     self._buffer.insert_bar(sym, result)
             else:  # "ob"
@@ -458,14 +347,7 @@ class RealtimeTradingTask(TradingTask):
                     self._buffer._on_order_book(result)
 
     def close(self) -> None:
-        """Release the per-task thread pool. Safe to call multiple times.
-
-        Optional: ThreadPoolExecutor workers are daemon threads so they
-        won't block process exit, but a clean shutdown frees the
-        sockets in the requests.Session connection pool sooner. The
-        agent_runtime's gym loop doesn't currently call this; runners
-        embedded in long-lived processes should.
-        """
+        """Release the per-task thread pool."""
         pool = getattr(self, "_fetch_pool", None)
         if pool is None:
             return
