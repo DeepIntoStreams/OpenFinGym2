@@ -27,6 +27,12 @@ Base = declarative_base()
 class TaskType(StrEnum):
     FORECASTING = "forecasting"
     GENERATION = "generation"
+    TRADING = "trading"
+
+
+# Trading tasks are built from curated bundles rather than generated from a
+# paper, so they never reach the extractor, critic, or generator.
+CURATED_TASK_TYPES = frozenset({TaskType.TRADING})
 
 
 class JudgeLabel(StrEnum):
@@ -53,6 +59,7 @@ class PaperStatus(StrEnum):
     REJECTED = "rejected"
     TASK_EXTRACTED = "task_extracted"
     TASK_EXTRACTION_FAILED = "task_extraction_failed"
+    ROUTED_TO_CURATED = "routed_to_curated"
 
 
 class SourceName(StrEnum):

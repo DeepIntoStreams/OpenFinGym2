@@ -16,6 +16,7 @@ from .steps.task_critic.pipeline import TaskCritic
 from .steps.task_export.pipeline import TaskExporter
 from .steps.task_extraction.pipeline import TaskExtractor
 from .steps.task_generator.pipeline import TaskGenerator
+from .steps.task_routing.pipeline import TaskRouter
 
 
 @hydra.main(
@@ -65,6 +66,9 @@ def run_pipeline(cfg: PipelineConfig) -> None:
 
         task_extractor = TaskExtractor(db_engine, cfg.task_extractor)
         task_extractor.run(output_dir, scopes)
+
+        task_router = TaskRouter(db_engine, cfg.task_router)
+        task_router.run(output_dir, scopes)
 
         task_critic = TaskCritic(db_engine, cfg.task_critic)
         task_critic.run(output_dir, scopes)
