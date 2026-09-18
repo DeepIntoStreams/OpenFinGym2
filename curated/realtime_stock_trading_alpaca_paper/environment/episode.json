@@ -1,0 +1,33 @@
+{
+  "kind": "realtime_trading_alpaca_paper",
+  "config": {
+    "symbols": [
+      "SPY",
+      "QQQ",
+      "IWM"
+    ],
+    "target_symbols": [
+      "SPY",
+      "QQQ"
+    ],
+    "slippage_pct": 0.0,
+    "transaction_cost_pct": 0.0,
+    "max_steps": 10,
+    "context_resolutions": [
+      {
+        "interval": "1m",
+        "bars": 60
+      },
+      {
+        "interval": "5m",
+        "bars": 24
+      },
+      {
+        "interval": "1h",
+        "bars": 24
+      }
+    ],
+    "data_resolution": "1m",
+    "execution_mode": "alpaca_paper"
+  }
+}
