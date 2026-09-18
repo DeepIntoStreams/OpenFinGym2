@@ -1,0 +1,24 @@
+services:
+  main:
+    depends_on:
+      - broker
+    environment:
+      BROKER_URL: http://broker:8000
+
+  broker:
+    image: localhost/openfingym-broker
+    pull_policy: never
+    environment:
+      # Read straight from the host. Declaring them under task.toml's
+      # [environment.env] would also hand them to the agent's container.
+      ALPACA_API_KEY: ${ALPACA_API_KEY_ID}
+      ALPACA_SECRET_KEY: ${ALPACA_API_SECRET_KEY}
+      BROKER_CONFIG: /broker/episode.json
+      # Wait out the 5-minute forecast horizon so /score can settle it.
+      BROKER_SCORE_DEADLINE_SEC: "420"
+    volumes:
+      - ./episode.json:/broker/episode.json:ro
+      - ledger:/ledger
+
+volumes:
+  ledger:

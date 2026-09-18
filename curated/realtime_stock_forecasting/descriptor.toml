@@ -1,0 +1,36 @@
+# Fields a paper may set on this bundle. Anything absent falls back to defaults.
+task_id  = "realtime_stock_forecasting"
+scope_id = "realtime_forecasting"
+description = """\
+Forecasting the price of US equities a fixed horizon ahead, on live data."""
+
+# This task runs against the live market, so the paper's sample period does
+# not carry over and no date fields are offered.
+[config_schema.symbols]
+type = "list[str]"
+notes = "US equity tickers, common stocks and major ETFs, no exchange suffix. Map a non-US instrument onto its closest US-listed equivalent."
+
+[config_schema.target_symbols]
+type = "list[str]"
+notes = "Subset of symbols the metrics score. The others may still be traded for hedging but do not count."
+
+[config_schema.data_resolution]
+type = "str"
+options = ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"]
+notes = "Bar cadence the episode steps at. Must be the finest interval in context_resolutions."
+
+[config_schema.context_resolutions]
+type = "list[{interval, bars}]"
+notes = "Observation history per interval, coarsest last."
+
+[config_schema.horizon_bars]
+type = "int"
+notes = "How far ahead the agent predicts, in bars of data_resolution."
+
+[defaults]
+symbols = ["SPY", "QQQ", "IWM"]
+target_symbols = ["SPY", "QQQ"]
+horizon_bars = 5
+context_resolutions = [{ interval = "1m", bars = 60 }, { interval = "5m", bars = 24 }, { interval = "1h", bars = 24 }]
+data_resolution = "1m"
+headline_metric = "price_mape"
