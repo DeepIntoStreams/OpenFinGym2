@@ -1,0 +1,21 @@
+services:
+  main:
+    depends_on:
+      - broker
+    environment:
+      BROKER_URL: http://broker:8000
+
+  broker:
+    image: localhost/openfingym-broker
+    pull_policy: never
+    environment:
+      BROKER_CONFIG: /broker/episode.json
+      # Bound the wait: markets that have not settled by then are reported
+      # as pending rather than holding the trial open to the hour.
+      BROKER_SCORE_DEADLINE_SEC: "1200"
+    volumes:
+      - ./episode.json:/broker/episode.json:ro
+      - ledger:/ledger
+
+volumes:
+  ledger:

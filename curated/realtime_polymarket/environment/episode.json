@@ -1,0 +1,18 @@
+{
+  "kind": "realtime_polymarket",
+  "config": {
+    "db_path": "/ledger/predictions.db",
+    "headline_metric": "brier_score",
+    "discovery": {
+      "resolution_window_hours_min": 0.05,
+      "resolution_window_hours_max": 1.0,
+      "min_yes_price": 0.01,
+      "max_yes_price": 0.99,
+      "max_markets_per_trial": 20,
+      "categories": [],
+      "exclude_disputed": true,
+      "binary_only": true,
+      "min_liquidity": 2000.0
+    }
+  }
+}

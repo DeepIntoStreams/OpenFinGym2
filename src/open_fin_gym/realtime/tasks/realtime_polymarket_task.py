@@ -7,9 +7,10 @@ construction and each market carries its own resolution time.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from uuid import uuid4
 
 from open_fin_gym.realtime.contracts import BaseTask, TaskMetadata
 from open_fin_gym.realtime.data_providers.base import EventDataProvider
@@ -103,6 +104,8 @@ class RealtimePolymarketTask(BaseTask):
 
         self._provider: EventDataProvider = provider
         self._ledger = ledger
+        # Filled in by step(); evaluate() reports what was recorded.
+        self._submitted: dict[str, Any] = {}
 
         if skip_discovery:
             universe = list(markets or [])
@@ -208,10 +211,93 @@ class RealtimePolymarketTask(BaseTask):
         """Return the current market universe as the initial observation."""
         return self.load_data()
 
+    def _ledger_row(
+        self,
+        symbol: str,
+        probability: float,
+        session_id: str,
+        submitted_at: datetime,
+    ) -> dict[str, Any]:
+        """Shape one YES-probability prediction into a pending ledger row."""
+        resolve_at = self._market_resolve_at[symbol]
+        meta = self._market_metadata.get(symbol, {})
+        end_date = meta.get("resolution_at")
+        return {
+            "session_id": session_id,
+            "provider": self._provider.name,
+            "symbol": symbol,
+            # Events carry an absolute resolve_at, but the schema requires
+            # horizon_minutes; record the delta for context.
+            "horizon_minutes": max(
+                0, int((resolve_at - submitted_at).total_seconds() // 60)
+            ),
+            "submitted_at": submitted_at,
+            "resolve_at": resolve_at,
+            # Always "long YES": the number the agent gives is the YES-side
+            # probability.
+            "direction": "long",
+            "predicted_price": probability,
+            # Read server-side, so a prediction cannot be scored against a
+            # price the agent invented.
+            "entry_price": float(self._provider.get_current_price(symbol).price),
+            "snapshot": {
+                "event_prediction": True,
+                "predicted_yes_probability": probability,
+                "question": meta.get("question"),
+                "categories": list(meta.get("categories") or []),
+                "end_date_iso": (
+                    end_date.isoformat() if isinstance(end_date, datetime) else None
+                ),
+            },
+        }
+
     def step(self, action: Any) -> tuple[Any, float, bool, Dict[str, Any]]:
-        """No-op: polymarket is single-shot batch via HTTP, not gym loop."""
-        return (self.load_data(), 0.0, True, {"single_shot": True})
+        """Record one batch of YES probabilities for deferred scoring.
+
+        Args:
+            action: ``{"predictions": [...]}`` or a bare list; ``done`` is always True.
+        """
+        predictions = action.get("predictions") if isinstance(action, dict) else action
+        if not isinstance(predictions, list):
+            raise ValueError(
+                "action must be a list of predictions or carry one under "
+                f"'predictions'; got {type(predictions).__name__}"
+            )
+
+        session_id = str(uuid4())
+        submitted_at = datetime.now(timezone.utc)
+        rows = []
+        for pred in predictions:
+            symbol = pred.get("symbol")
+            if symbol not in self._market_resolve_at:
+                raise ValueError(
+                    f"symbol {symbol!r} is not in this trial's discovered "
+                    f"universe ({len(self._target_symbols)} markets)"
+                )
+            rows.append(
+                self._ledger_row(
+                    symbol,
+                    float(pred["predicted_yes_probability"]),
+                    session_id,
+                    submitted_at,
+                )
+            )
+
+        pred_ids = [self._ledger.submit(row) for row in rows]
+        resolve_ats = [row["resolve_at"] for row in rows]
+        self._submitted = {
+            "session_id": session_id,
+            "n_predictions": len(pred_ids),
+            "prediction_ids": pred_ids,
+            "resolve_at_first": min(resolve_ats).isoformat() if resolve_ats else None,
+            "resolve_at_last": max(resolve_ats).isoformat() if resolve_ats else None,
+        }
+        return (self.load_data(), 0.0, True, {"single_shot": True, **self._submitted})
 
     def evaluate(self, agent_actions: List[Any], **kwargs: Any) -> Dict[str, float]:
-        """Return a deferred placeholder."""
-        return {"status_deferred": 1.0, "reward": 0.0}
+        """Report how many predictions were recorded; /score resolves them."""
+        return {
+            "status_deferred": 1.0,
+            "reward": 0.0,
+            "n_predictions": float(self._submitted.get("n_predictions", 0)),
+        }
