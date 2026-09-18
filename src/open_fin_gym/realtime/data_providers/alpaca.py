@@ -1,0 +1,675 @@
+"""Alpaca Markets REST + WebSocket data provider.
+
+Streamed bars are synthesised locally from the trade feed, with a watchdog and
+a REST cross-check covering dropped messages.
+"""
+
+import asyncio
+import json as _json
+import logging
+import os
+import time
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
+from typing import Any, Callable
+
+import requests
+
+from alpaca.data.historical import StockHistoricalDataClient
+from alpaca.data.requests import (
+    StockBarsRequest,
+    StockLatestBarRequest,
+    StockLatestQuoteRequest,
+    StockTradesRequest,
+)
+from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
+
+from open_fin_gym.realtime.data_providers.base import (
+    MarketSnapshot,
+    OrderBookSnapshot,
+    interval_to_seconds,
+    parse_interval,
+)
+
+logger = logging.getLogger(__name__)
+
+
+# Conditions Alpaca's REST /bars excludes from OHLC on the IEX feed; volume
+# still counts every trade. Only 'I' is confirmed, the rest are defensive.
+_DEFAULT_NON_LAST_SALE_CODES: frozenset[str] = frozenset(
+    {
+        "I",  # Intermarket Sweep Order — empirically validated
+        # Defensive (not seen in 1-hour validation; cross-check would catch):
+        "O",
+        "M",
+        "B",
+        "L",
+        "X",
+        "P",
+        "T",
+        "U",
+        "Z",
+        "9",
+        "V",
+        "4",
+        "5",
+        "6",
+        "7",
+    }
+)
+
+
+def _to_sdk_timeframe(interval: str) -> TimeFrame:
+    """Convert a generic interval string into the SDK's timeframe object."""
+    units = {
+        "m": TimeFrameUnit.Minute,
+        "h": TimeFrameUnit.Hour,
+        "d": TimeFrameUnit.Day,
+        "w": TimeFrameUnit.Week,
+        "M": TimeFrameUnit.Month,
+    }
+    value, unit = parse_interval(interval)
+    if unit not in units:
+        raise ValueError(f"No Alpaca timeframe mapping for unit {unit!r}")
+    return TimeFrame(value, units[unit])
+
+
+def _to_snapshot(symbol: str, bar: Any) -> MarketSnapshot:
+    """Convert an SDK bar into the provider-neutral snapshot shape."""
+    return MarketSnapshot(
+        symbol=symbol,
+        timestamp=bar.timestamp,
+        price=float(bar.close),
+        open=float(bar.open),
+        high=float(bar.high),
+        low=float(bar.low),
+        close=float(bar.close),
+        volume=float(bar.volume),
+    )
+
+
+class _AlpacaTradesBarBuilder:
+    """Synthesise OHLCV bars from Alpaca's per-trade WebSocket stream.
+
+    Every trade counts toward volume but only last-sale-eligible ones move
+    open/high/low/close.
+    """
+
+    #: Seconds of WS silence before the watchdog backfills over REST; liquid
+    #: names trade many times a second, so this is conservative.
+    WATCHDOG_TIMEOUT_S: float = 30.0
+
+    #: Grace before the REST cross-check, since Alpaca's aggregator takes a
+    #: few seconds to finalise a closed bar.
+    CROSS_CHECK_DELAY_S: float = 6.0
+
+    def __init__(
+        self,
+        *,
+        symbol: str,
+        interval_s: int,
+        callback: Callable[[MarketSnapshot], None],
+        rest: "AlpacaProvider",
+        last_sale_filter: frozenset[str] | None = None,
+        cross_check_enabled: bool = True,
+        cross_check_pool: ThreadPoolExecutor | None = None,
+    ) -> None:
+        if interval_s <= 0:
+            raise ValueError(f"interval_s must be positive, got {interval_s}")
+        self._symbol = symbol
+        self._interval_s = interval_s
+        self._interval_ms = interval_s * 1000
+        self._callback = callback
+        self._rest = rest
+        self._last_sale_filter = (
+            last_sale_filter
+            if last_sale_filter is not None
+            else _DEFAULT_NON_LAST_SALE_CODES
+        )
+        self._cross_check_enabled = cross_check_enabled
+        # Allow the caller to share one pool across symbols; otherwise
+        # create a tiny dedicated one. Cleaned up by ``close``.
+        if cross_check_pool is not None:
+            self._cross_check_pool = cross_check_pool
+            self._owns_pool = False
+        else:
+            self._cross_check_pool = ThreadPoolExecutor(
+                max_workers=2,
+                thread_name_prefix=f"alp-cc-{symbol}",
+            )
+            self._owns_pool = True
+        # ``_ohlc_started`` separates an open bucket from one that has seen a
+        # last-sale-eligible trade; until then the bar carries volume only.
+        self._bar_open_ms: int | None = None
+        self._o = 0.0
+        self._h = 0.0
+        self._l = 0.0
+        self._c = 0.0
+        self._v = 0.0
+        self._ohlc_started = False
+        self._ohlc_trade_count = 0
+        # Last observed trade time, not receipt time, so the backfill window
+        # after a silence lines up with the venue clock.
+        self._last_trade_ms: int | None = None
+        # Used by the subscribe_bars loop to know when the WS has
+        # really gone idle vs when it's mid-flight.
+        self._last_msg_perf: float = time.perf_counter()
+
+    # --- core ----------------------------------------------------------
+
+    def _bucket(self, trade_time_ms: int) -> int:
+        return (trade_time_ms // self._interval_ms) * self._interval_ms
+
+    def _is_eligible(self, conditions: tuple[str, ...]) -> bool:
+        return not any(c in self._last_sale_filter for c in conditions)
+
+    def _emit_current(self) -> None:
+        """Emit a snapshot for the in-progress bar.
+
+        Skips emission until at least one last-sale-eligible trade has
+        landed in the bar — until then we have volume but no canonical
+        OHLC value to surface.
+        """
+        if self._bar_open_ms is None or not self._ohlc_started:
+            return
+        snap = MarketSnapshot(
+            symbol=self._symbol,
+            timestamp=datetime.fromtimestamp(self._bar_open_ms / 1000, tz=timezone.utc),
+            price=self._c,
+            open=self._o,
+            high=self._h,
+            low=self._l,
+            close=self._c,
+            volume=self._v,
+        )
+        self._callback(snap)
+
+    def _close_current_bar(self) -> None:
+        """Emit the final snapshot for the closed bar and asynchronously schedule the REST cross-check."""
+        if self._bar_open_ms is None or not self._ohlc_started:
+            return
+        closed_open_ms = self._bar_open_ms
+        closed_snapshot = {
+            "o": self._o,
+            "h": self._h,
+            "l": self._l,
+            "c": self._c,
+            "v": self._v,
+            "ohlc_trade_count": self._ohlc_trade_count,
+        }
+        self._emit_current()
+        if self._cross_check_enabled:
+            # Fire-and-forget: cross-check runs entirely on the
+            # threadpool worker; this submit() returns immediately.
+            self._cross_check_pool.submit(
+                self._cross_check, closed_open_ms, closed_snapshot
+            )
+
+    def _apply_trade(
+        self,
+        trade_time_ms: int,
+        price: float,
+        size: float,
+        conditions: tuple[str, ...],
+        *,
+        emit: bool,
+    ) -> None:
+        bucket = self._bucket(trade_time_ms)
+        eligible = self._is_eligible(conditions)
+        if self._bar_open_ms is None:
+            self._bar_open_ms = bucket
+            if eligible:
+                self._o = self._h = self._l = self._c = price
+                self._ohlc_started = True
+                self._ohlc_trade_count = 1
+            self._v = size
+        elif bucket == self._bar_open_ms:
+            self._v += size
+            if eligible:
+                if not self._ohlc_started:
+                    self._o = self._h = self._l = self._c = price
+                    self._ohlc_started = True
+                else:
+                    if price > self._h:
+                        self._h = price
+                    if price < self._l:
+                        self._l = price
+                    self._c = price
+                self._ohlc_trade_count += 1
+        else:
+            # Bar boundary crossed — close the previous bar and start fresh.
+            self._close_current_bar()
+            self._bar_open_ms = bucket
+            self._v = size
+            if eligible:
+                self._o = self._h = self._l = self._c = price
+                self._ohlc_started = True
+                self._ohlc_trade_count = 1
+            else:
+                # Reset OHLC state but don't surface a snapshot yet;
+                # wait for the first eligible trade.
+                self._o = self._h = self._l = self._c = 0.0
+                self._ohlc_started = False
+                self._ohlc_trade_count = 0
+        self._last_trade_ms = trade_time_ms
+        self._last_msg_perf = time.perf_counter()
+        if emit:
+            self._emit_current()
+
+    # --- public entry points -------------------------------------------
+
+    def on_trade(self, msg: dict[str, Any]) -> None:
+        """Process one Alpaca WS trade message (``{"T": "t", ...}``)."""
+        ts_str = msg.get("t")
+        price_raw = msg.get("p")
+        size_raw = msg.get("s")
+        if ts_str is None or price_raw is None or size_raw is None:
+            return
+        try:
+            ts = datetime.fromisoformat(str(ts_str).replace("Z", "+00:00"))
+        except Exception:
+            return
+        trade_time_ms = int(ts.timestamp() * 1000)
+        conditions = tuple(msg.get("c") or [])
+        self._apply_trade(
+            trade_time_ms,
+            float(price_raw),
+            float(size_raw),
+            conditions,
+            emit=True,
+        )
+
+    def silence_ms(self) -> float:
+        """Wall-clock ms since the last received trade message.
+
+        Used by the supervising subscribe_bars loop to decide whether
+        to fire :meth:`backfill_silence_gap`.
+        """
+        return (time.perf_counter() - self._last_msg_perf) * 1000.0
+
+    def backfill_silence_gap(self) -> None:
+        """REST-fetch trades since ``_last_trade_ms`` and replay them."""
+        if self._last_trade_ms is None:
+            return
+        start = datetime.fromtimestamp(
+            (self._last_trade_ms + 1) / 1000, tz=timezone.utc
+        )
+        now = datetime.now(timezone.utc)
+        logger.warning(
+            "alpaca trade-stream silence detected sym=%s — REST backfill from %s to %s",
+            self._symbol,
+            start.isoformat(),
+            now.isoformat(),
+        )
+        try:
+            trades = self._rest.get_trades(
+                self._symbol,
+                start=start,
+                end=now,
+            )
+        except Exception:
+            logger.warning(
+                "alpaca silence-backfill REST call failed sym=%s",
+                self._symbol,
+                exc_info=True,
+            )
+            return
+        applied = 0
+        for trade in trades:
+            ts_str = trade.get("t")
+            price_raw = trade.get("p")
+            size_raw = trade.get("s")
+            if ts_str is None or price_raw is None or size_raw is None:
+                continue
+            try:
+                ts = datetime.fromisoformat(str(ts_str).replace("Z", "+00:00"))
+            except Exception:
+                continue
+            self._apply_trade(
+                int(ts.timestamp() * 1000),
+                float(price_raw),
+                float(size_raw),
+                tuple(trade.get("c") or []),
+                emit=False,
+            )
+            applied += 1
+        logger.info(
+            "alpaca silence-backfill applied sym=%s trades=%d",
+            self._symbol,
+            applied,
+        )
+        self._emit_current()
+
+    # --- cross-check ---------------------------------------------------
+
+    def _cross_check(
+        self,
+        closed_open_ms: int,
+        local: dict[str, float],
+    ) -> None:
+        """Compare the just-closed local bar against Alpaca's REST bar, replacing it if they diverge.
+
+        Runs on the cross-check pool rather than the WS loop, and only ever rewrites
+        the bar it was started for.
+        """
+        try:
+            time.sleep(self.CROSS_CHECK_DELAY_S)
+            start = datetime.fromtimestamp(closed_open_ms / 1000, tz=timezone.utc)
+            end = datetime.fromtimestamp(
+                (closed_open_ms + self._interval_ms) / 1000, tz=timezone.utc
+            )
+            rest_bars = self._rest.get_bars(
+                self._symbol,
+                self._interval_label(),
+                start,
+                end,
+            )
+        except Exception:
+            logger.debug(
+                "alpaca cross-check REST failed sym=%s bar=%d",
+                self._symbol,
+                closed_open_ms,
+                exc_info=True,
+            )
+            return
+        # Find the bar whose timestamp matches.
+        target = None
+        for b in rest_bars:
+            if int(b.timestamp.timestamp() * 1000) == closed_open_ms:
+                target = b
+                break
+        if target is None:
+            # REST has no bar yet, or excluded it for want of eligible trades;
+            # either way leave the local bar alone.
+            return
+        rest = {
+            "o": float(target.open if target.open is not None else target.price),
+            "h": float(target.high if target.high is not None else target.price),
+            "l": float(target.low if target.low is not None else target.price),
+            "c": float(target.close if target.close is not None else target.price),
+            "v": float(target.volume if target.volume is not None else 0.0),
+        }
+        if all(
+            self._approx_equal(local[f], rest[f]) for f in ("o", "h", "l", "c", "v")
+        ):
+            return
+        logger.warning(
+            "alpaca cross-check divergence sym=%s bar_open_ms=%d "
+            "local=%s rest=%s — replacing local with REST canonical",
+            self._symbol,
+            closed_open_ms,
+            local,
+            rest,
+        )
+        # Replace by re-firing callback with REST's snapshot. The
+        # buffer dedups by timestamp, so this overwrites in place.
+        snap = MarketSnapshot(
+            symbol=self._symbol,
+            timestamp=datetime.fromtimestamp(closed_open_ms / 1000, tz=timezone.utc),
+            price=rest["c"],
+            open=rest["o"],
+            high=rest["h"],
+            low=rest["l"],
+            close=rest["c"],
+            volume=rest["v"],
+        )
+        try:
+            self._callback(snap)
+        except Exception:
+            logger.warning(
+                "alpaca cross-check replacement callback raised sym=%s",
+                self._symbol,
+                exc_info=True,
+            )
+
+    def _interval_label(self) -> str:
+        # ``get_bars`` expects an interval string; we hold seconds.
+        # Limit to common cases: 1m, 5m, 15m, 1h, 1d.
+        s = self._interval_s
+        if s % 86_400 == 0:
+            return f"{s // 86_400}d"
+        if s % 3600 == 0:
+            return f"{s // 3600}h"
+        if s % 60 == 0:
+            return f"{s // 60}m"
+        return f"{s}s"
+
+    @staticmethod
+    def _approx_equal(a: float, b: float, rel_tol: float = 1e-6) -> bool:
+        if a == b:
+            return True
+        denom = max(abs(a), abs(b))
+        if denom == 0.0:
+            return True
+        return abs(a - b) / denom < rel_tol
+
+    # --- lifecycle -----------------------------------------------------
+
+    def close(self) -> None:
+        """Release the per-builder cross-check pool (if owned)."""
+        if self._owns_pool:
+            try:
+                self._cross_check_pool.shutdown(wait=False)
+            except Exception:
+                pass
+
+
+class AlpacaProvider:
+    """Market data from the Alpaca Data API (v2) + WebSocket streams."""
+
+    name = "alpaca"
+
+    _WS_URL = "wss://stream.data.alpaca.markets/v2/iex"
+
+    # No client-side throttle: warn when the remaining-quota header runs low
+    # and retry once on 429.
+
+    def __init__(
+        self,
+        base_url: str = "https://data.alpaca.markets",
+        api_key_env: str = "ALPACA_API_KEY",
+        api_secret_env: str = "ALPACA_SECRET_KEY",
+        rate_limit_per_min: int | None = None,
+    ) -> None:
+        self._base = base_url.rstrip("/")
+        self._feed = "iex"
+        self._api_key = os.environ.get(api_key_env, "")
+        self._api_secret = os.environ.get(api_secret_env, "")
+        if not self._api_key:
+            logger.warning(
+                "Alpaca API key not set (%s). Requests will likely fail.",
+                api_key_env,
+            )
+        # rate_limit_per_min is informational now, kept so callers that passed
+        # a tighter envelope can still read it back.
+        self._declared_rate_limit_per_min = rate_limit_per_min
+
+        self._data_client = StockHistoricalDataClient(
+            self._api_key, self._api_secret
+        )
+
+    def get_current_price(self, symbol: str) -> MarketSnapshot:
+        # The latest bar, not trade, so the snapshot carries OHLCV and its
+        # open time lets the buffer overwrite the same entry within a minute.
+        request = StockLatestBarRequest(symbol_or_symbols=symbol, feed=self._feed)
+        bars = self._data_client.get_stock_latest_bar(request)
+        bar = bars.get(symbol)
+        if bar is None:
+            raise ValueError(f"No latest bar returned for {symbol}")
+        return _to_snapshot(symbol, bar)
+
+    def get_price_at(
+        self, symbol: str, at: datetime, interval: str = "1m"
+    ) -> MarketSnapshot:
+        bars = self.get_bars(symbol, interval, at, at)
+        if not bars:
+            raise ValueError(f"No {interval} bar data for {symbol} at {at.isoformat()}")
+        return bars[0]
+
+    def get_bars(
+        self,
+        symbol: str,
+        interval: str,
+        start: datetime,
+        end: datetime,
+    ) -> list[MarketSnapshot]:
+        request = StockBarsRequest(
+            symbol_or_symbols=symbol,
+            timeframe=_to_sdk_timeframe(interval),
+            start=start,
+            end=end,
+            feed=self._feed,
+        )
+        bars = self._data_client.get_stock_bars(request)
+        return [_to_snapshot(symbol, b) for b in bars.data.get(symbol, [])]
+
+    # ── Raw trades (REST) ────────────────────────────────────────────
+
+    def get_trades(
+        self,
+        symbol: str,
+        *,
+        start: datetime,
+        end: datetime | None = None,
+        limit: int = 10_000,
+        feed: str = "iex",
+    ) -> list[dict[str, Any]]:
+        """Fetch raw trades, shaped like the WebSocket messages.
+
+        Used by :meth:`subscribe_bars` to backfill the tape across a silence
+        gap, so the bar builder can replay them through :meth:`on_trade`.
+        """
+        request = StockTradesRequest(
+            symbol_or_symbols=symbol, start=start, end=end, limit=limit, feed=feed
+        )
+        trades = self._data_client.get_stock_trades(request)
+        return [
+            {
+                "t": t.timestamp.isoformat().replace("+00:00", "Z"),
+                "p": float(t.price),
+                "s": float(t.size),
+                "c": list(t.conditions or []),
+            }
+            for t in trades.data.get(symbol, [])
+        ]
+
+    def get_order_book(self, symbol: str, depth: int = 20) -> OrderBookSnapshot:
+        """Fetch NBBO. Alpaca exposes no L2 depth, so the lists stay empty."""
+        request = StockLatestQuoteRequest(symbol_or_symbols=symbol, feed=self._feed)
+        quote = self._data_client.get_stock_latest_quote(request)[symbol]
+        return OrderBookSnapshot(
+            symbol=symbol,
+            timestamp=datetime.now(timezone.utc),
+            best_bid=float(quote.bid_price),
+            best_bid_qty=float(quote.bid_size),
+            best_ask=float(quote.ask_price),
+            best_ask_qty=float(quote.ask_size),
+        )
+
+    # ── WebSocket streaming ──────────────────────────────────────────
+
+    def supports_websocket(self) -> bool:  # noqa: PLR6301
+        return True
+
+    async def subscribe_bars(
+        self,
+        symbol: str,
+        interval: str,
+        callback: Callable[[MarketSnapshot], None],
+    ) -> None:
+        """Stream bars synthesised from Alpaca WS ``trades`` ticks."""
+        import websockets  # optional dependency
+
+        builder = _AlpacaTradesBarBuilder(
+            symbol=symbol,
+            interval_s=interval_to_seconds(interval),
+            callback=callback,
+            rest=self,
+        )
+        try:
+            async with websockets.connect(self._WS_URL) as ws:
+                await ws.send(
+                    _json.dumps(
+                        {
+                            "action": "auth",
+                            "key": self._api_key,
+                            "secret": self._api_secret,
+                        }
+                    )
+                )
+                await ws.recv()  # auth ack
+                await ws.send(
+                    _json.dumps(
+                        {
+                            "action": "subscribe",
+                            "trades": [symbol],
+                        }
+                    )
+                )
+                await ws.recv()  # subscription ack
+
+                # Poll with a timeout equal to the silence threshold, then
+                # backfill over REST when it expires.
+                watchdog_s = _AlpacaTradesBarBuilder.WATCHDOG_TIMEOUT_S
+                while True:
+                    try:
+                        raw = await asyncio.wait_for(ws.recv(), timeout=watchdog_s)
+                    except asyncio.TimeoutError:
+                        builder.backfill_silence_gap()
+                        continue
+                    msgs = _json.loads(raw)
+                    if not isinstance(msgs, list):
+                        msgs = [msgs]
+                    for msg in msgs:
+                        if msg.get("T") != "t":
+                            # Non-trade frames (auth/sub acks, error,
+                            # status, etc.); ignored on the bar path.
+                            continue
+                        try:
+                            builder.on_trade(msg)
+                        except Exception:
+                            logger.warning(
+                                "alpaca trade processing error sym=%s",
+                                symbol,
+                                exc_info=True,
+                            )
+        finally:
+            builder.close()
+
+    async def subscribe_order_book(
+        self,
+        symbol: str,
+        callback: Callable[[OrderBookSnapshot], None],
+    ) -> None:
+        """Stream NBBO quotes via Alpaca WebSocket (IEX feed)."""
+        import websockets  # optional dependency
+
+        async with websockets.connect(self._WS_URL) as ws:
+            auth_msg = _json.dumps(
+                {"action": "auth", "key": self._api_key, "secret": self._api_secret}
+            )
+            await ws.send(auth_msg)
+            await ws.recv()
+
+            sub_msg = _json.dumps({"action": "subscribe", "quotes": [symbol]})
+            await ws.send(sub_msg)
+            await ws.recv()
+
+            async for raw in ws:
+                msgs = _json.loads(raw)
+                if not isinstance(msgs, list):
+                    msgs = [msgs]
+                for msg in msgs:
+                    if msg.get("T") != "q":  # "q" = quote message
+                        continue
+                    snap = OrderBookSnapshot(
+                        symbol=msg.get("S", symbol),
+                        timestamp=datetime.fromisoformat(
+                            msg["t"].replace("Z", "+00:00")
+                        ),
+                        best_bid=float(msg.get("bp", 0)),
+                        best_bid_qty=float(msg.get("bs", 0)),
+                        best_ask=float(msg.get("ap", 0)),
+                        best_ask_qty=float(msg.get("as", 0)),
+                    )
+                    callback(snap)

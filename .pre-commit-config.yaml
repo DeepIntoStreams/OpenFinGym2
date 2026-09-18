@@ -24,6 +24,7 @@ repos:
     rev: 5.12.0
     hooks:
     - id: isort
+      exclude: ^src/open_fin_gym/realtime/
       args:
         - "--multi-line=3"
         - "--use-parentheses"
