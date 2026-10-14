@@ -9,8 +9,25 @@ WORKDIR /app
 COPY data.py data.py
 COPY verifier.py verifier.py
 
+{% if test %}
+
+ARG ALPACA_API_KEY
+ENV ALPACA_API_KEY=$ALPACA_API_KEY
+
+ARG ALPACA_SECRET_KEY
+ENV ALPACA_SECRET_KEY=$ALPACA_SECRET_KEY
+
+ARG KAGGLE_API_TOKEN
+ENV KAGGLE_API_TOKEN=$KAGGLE_API_TOKEN
+
+RUN uv run {{ requirements | map("strformat", "--with %s") | join(" ") }} data.py
+
+{% else %}
+
 # Load secret data environment variables and run data retrieval script
 RUN --mount=type=secret,id=alpaca_api_key,env=ALPACA_API_KEY \
     --mount=type=secret,id=alpaca_secret_key,env=ALPACA_SECRET_KEY \
     --mount=type=secret,id=kaggle_api_token,env=KAGGLE_API_TOKEN \
     uv run {{ requirements | map("strformat", "--with %s") | join(" ") }} data.py
+
+{% endif %}

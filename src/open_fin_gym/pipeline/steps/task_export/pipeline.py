@@ -85,7 +85,8 @@ class TaskExporter:
                 docker_compose = self.docker_compose_template.render()
 
                 train_docker = self.train_docker_template.render(
-                    requirements=task.requirements
+                    requirements=task.requirements,
+                    test=False,
                 )
 
                 with open(env_dir / "Dockerfile", "w") as f:
@@ -101,7 +102,7 @@ class TaskExporter:
                 test_dir.mkdir()
 
                 test_docker = self.test_docker_template.render(
-                    requirements=task.requirements
+                    requirements=task.requirements, test=False
                 )
 
                 with open(test_dir / "Dockerfile", "w") as f:

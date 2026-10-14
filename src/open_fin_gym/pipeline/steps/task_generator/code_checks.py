@@ -1,4 +1,5 @@
 import json
+import os
 from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -66,13 +67,20 @@ def test_train_download_script(
         with open(script_path, "w") as f:
             f.write(download_script)
 
-        docker_file = docker_template.render(requirements=requirements)
+        docker_file = docker_template.render(requirements=requirements, test=True)
 
         with open(folder_path / "Dockerfile", "w") as f:
             f.write(docker_file)
 
         try:
-            image, logs = client.images.build(path=str(folder_path))
+            image, logs = client.images.build(
+                path=str(folder_path),
+                buildargs={
+                    "ALPACA_API_KEY": os.environ.get("ALPACA_API_KEY"),
+                    "ALPACA_SECRET_KEY": os.environ.get("ALPACA_SECRET_KEY"),
+                    "KAGGLE_API_TOKEN": os.environ.get("KAGGLE_API_TOKEN"),
+                },
+            )
         except BuildError as be:
             return False, be.msg
 
@@ -126,7 +134,7 @@ def test_test_download_script(
         with open(verifier_script_path, "w") as f:
             f.write(verification_script)
 
-        docker_file = docker_template.render(requirements=requirements)
+        docker_file = docker_template.render(requirements=requirements, test=True)
 
         with open(folder_path / "Dockerfile", "w") as f:
             f.write(docker_file)
@@ -137,7 +145,14 @@ def test_test_download_script(
             f.write(test_sh_file)
 
         try:
-            image, logs = client.images.build(path=str(folder_path))
+            image, logs = client.images.build(
+                path=str(folder_path),
+                buildargs={
+                    "ALPACA_API_KEY": os.environ.get("ALPACA_API_KEY"),
+                    "ALPACA_SECRET_KEY": os.environ.get("ALPACA_SECRET_KEY"),
+                    "KAGGLE_API_TOKEN": os.environ.get("KAGGLE_API_TOKEN"),
+                },
+            )
         except BuildError as be:
             return False, be.msg
 
