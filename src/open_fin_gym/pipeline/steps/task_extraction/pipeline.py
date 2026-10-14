@@ -128,7 +128,8 @@ class TaskExtractor:
                         paper_id=paper.paper_id,
                         task_name=task_summary.task_name,
                         task_type=scope.task_type,
-                        description=task_summary.task_description,
+                        plan=task_summary.task_implementation_plan,
+                        instructions=task_summary.task_instructions,
                         status=TaskCandidateStatus.NEW,
                     )
 

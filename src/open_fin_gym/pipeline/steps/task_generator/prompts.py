@@ -50,7 +50,7 @@ Notes:
 Specification:
 
 Task name: {task_spec.task_name}
-Task description: {task_spec.task_description}
+Task implementation plan: {task_spec.task_plan}
 Training input datasets:
     {training_inputs}
 Training target / ground-truth datasets:
@@ -84,7 +84,7 @@ You should also produce a list of Python requirements required by the assessment
 Specification:
 
 Task name: {task_spec.task_name}
-Task description: {task_spec.task_description}
+Task implementation plan: {task_spec.task_plan}
 Test outputs (produced by the user):
     {test_outputs}
 Test targets/ground-truth:

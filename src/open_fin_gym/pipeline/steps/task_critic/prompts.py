@@ -19,7 +19,7 @@ invent details; judge only what is written below.
 
 Task name: {spec.task_name}
 Task type: {spec.task_type}
-Task description: {spec.task_description}
+Task implementation plan: {spec.task_plan}
 
 Training input datasets:
 {_join(spec.training_inputs)}

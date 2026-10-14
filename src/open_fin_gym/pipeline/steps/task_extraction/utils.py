@@ -77,9 +77,10 @@ class TaskSpecification(BaseModel):
     id: int = Field(description="Task id")
     task_name: str = Field(description="Name id assigned to the task")
     task_type: TaskType = Field(description="Whether outputs are predicted or sampled")
-    task_description: str = Field(
+    task_instructions: str = Field(
         description="Description of the ML task including the data and how it is assessed"
     )
+    task_plan: str = Field(description="Task implementation plan")
     training_inputs: list[Dataset] = Field(
         description="List of training input datasets"
     )
@@ -99,7 +100,8 @@ def build_task_specification(task: TaskCandidate) -> TaskSpecification:
         id=task.task_id,
         task_name=task.task_name,
         task_type=task.task_type,
-        task_description=task.description,
+        task_plan=task.plan,
+        task_instructions=task.instructions,
         training_inputs=[convert_dataset(x) for x in task.training_inputs],
         training_targets=[convert_dataset(x) for x in task.training_targets],
         test_inputs=[convert_dataset(x) for x in task.test_inputs],

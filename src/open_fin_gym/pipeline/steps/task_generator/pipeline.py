@@ -91,10 +91,10 @@ class TaskGenerator:
             dataset_prompt = build_dataset_download_prompt(task_spec)
             metric_prompt = build_metric_prompt(task_spec, scope.task_params)
             description_prompt = build_description_summary_prompt(
-                task_spec.task_description
+                task_spec.task_instructions
             )
             difficulty_prompt = build_difficulty_explanation_prompt(
-                task_spec.task_description
+                task_spec.task_instructions
             )
 
             try:
@@ -113,7 +113,7 @@ class TaskGenerator:
                     )
                 )
                 instructions = self.instructions_template.render(
-                    task_description=task_spec.task_description,
+                    task_description=task_spec.task_instructions,
                     training_inputs=task_spec.training_inputs,
                     training_targets=task_spec.training_targets,
                     test_inputs=task_spec.test_inputs,

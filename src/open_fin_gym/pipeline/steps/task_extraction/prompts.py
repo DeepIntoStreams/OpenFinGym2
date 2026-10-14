@@ -13,9 +13,11 @@ You should use the experiments described in the paper as a basis for designing a
 example if the paper assesses the performance of a machine learning model then you should model your task around the
 experiments used in the assessment.
 
-You should produce a detailed, unambiguous plan to implement the task. This specification of the task should consist of:
+You should produce a detailed, unambiguous set of instructions to implement the task. This specification of the task
+should consist of:
 
-- A set of detailed instructions for the task to be undertaken
+- A detailed plan of how the task should be implemented
+- A set of instructions that will be provided to the user taking the task
 - A detailed description of any training input datasets provided to the user
 - A detailed description of any training target/ground-truth datasets provided to the user
 - A detailed description of any test input datasets provided to the user
@@ -23,8 +25,8 @@ You should produce a detailed, unambiguous plan to implement the task. This spec
 - A detailed description of any test target/ground-truth data
 - A detailed description of the assessment of the task, i.e. what metrics should be used, and how they are applied to the datasets
 
-This plan will then be used to generate description files, and code to generate relevant datasets and perform assessment. As
-such it should contain sufficient unambiguous detail required to implement the task.
+This plan will then be used by downstream tasks to generate description files, and code to generate relevant datasets and
+perform assessment. As such it should contain sufficient unambiguous detail required to implement the task.
 
 {scope.task_params.example}
 
@@ -35,7 +37,7 @@ such it should contain sufficient unambiguous detail required to implement the t
   retrieve and save the datasets and assess the task. As such your description should include as much detail as possible
   to recreate the experiment in the paper. The downstream tasks will not have access to the original paper, so should
   be able to implement the task without reference to the paper.
-- If the papers contain multiple experiments, select one to implement.
+- If the papers contain multiple experiments, select one task to implement.
 - When the task is run the user will be provided with the task description, training inputs, training target, and test input
   datasets (holding out the assessment test target data). The user will write their output to a file, which will then be read
   and assessed using the task metrics.
@@ -74,8 +76,13 @@ class AssessmentMetric(BaseModel):
 class PaperTaskSpecification(BaseModel):
     reasoning: str
     task_name: str = Field(description="Name id assigned to the task")
-    task_description: str = Field(
-        description="Description of the ML task including the data and how it is assessed"
+    task_implementation_plan: str = Field(
+        description=(
+            "Outline of how the task should be implemented by downstream tasks"
+        )
+    )
+    task_instructions: str = Field(
+        description="Task instructions that will be provided to the user"
     )
     training_inputs: list[Dataset] = Field(
         description="List of training input datasets"
