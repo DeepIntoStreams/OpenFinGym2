@@ -1,0 +1,17 @@
+services:
+  main:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      secrets:
+        - alpaca_api_key
+        - alpaca_secret_key
+        - kaggle_api_token
+
+secrets:
+  alpaca_api_key:
+    environment: ALPACA_API_KEY
+  alpaca_secret_key:
+    environment: ALPACA_SECRET_KEY
+  kaggle_api_token:
+    environment: KAGGLE_API_TOKEN

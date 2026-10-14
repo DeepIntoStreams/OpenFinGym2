@@ -9,4 +9,8 @@ WORKDIR /app
 COPY data.py data.py
 COPY verifier.py verifier.py
 
-RUN uv run {{ requirements | map("strformat", "--with %s") | join(" ") }} data.py
+# Load secret data environment variables and run data retrieval script
+RUN --mount=type=secret,id=alpaca_api_key,env=ALPACA_API_KEY \
+    --mount=type=secret,id=alpaca_secret_key,env=ALPACA_SECRET_KEY \
+    --mount=type=secret,id=kaggle_api_token,env=KAGGLE_API_TOKEN \
+    uv run {{ requirements | map("strformat", "--with %s") | join(" ") }} data.py
