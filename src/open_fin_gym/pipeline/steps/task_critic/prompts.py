@@ -54,11 +54,17 @@ Checks to make:
    not itself disqualifying if the same series is a standard public-market
    quantity (prices, returns, volumes, OHLCV, standard macro indicators) —
    only flag it if the specific instrument, period, or frequency is vague or
-   unspecified. This vendor carve-out does NOT apply to platforms that gate
-   the dataset itself behind an account or API key (e.g. Kaggle) — set
-   requires_authentication=True for those regardless of how well-known the
-   benchmark is. Flag genuinely proprietary content (hand-curated labels,
-   broker-internal order flow, full-depth order-book data) as an issue.
+   unspecified. As such this vendor carve-out does NOT apply to platforms that gate
+   the dataset itself behind an account or API key. API keys WILL be provided for the
+   following data services:
+
+   - Kaggle
+   - Alpaca
+
+   otherwise you should set `requires_authentication=True` for those regardless of
+   how well-known the benchmark is. Flag genuinely proprietary content
+   (hand-curated labels, broker-internal order flow, full-depth order-book data) as
+   an issue.
 
 If evidence is weak, ambiguous, or incomplete, reject by default.
 

@@ -45,6 +45,13 @@ perform assessment. As such it should contain sufficient unambiguous detail requ
   from public sources. Where possible use direct links found in the paper itself, or free public data sources such as Yahoo finance.
 - If the data in the paper is not publicly available then you may create a plan that recreates the experiment from public data
   sources.
+- Any parameters required to sample data should specified (e.g. date-ranges, periodicity)
+- The following data sources are recommended (either public or API keys will be provided);
+  - Public git repositories
+  - Any datasets with public download links
+  - Yahoo finance
+  - Kaggle (API key provided)
+  - Alpaca (API credential provided)
 """.strip()
 
 

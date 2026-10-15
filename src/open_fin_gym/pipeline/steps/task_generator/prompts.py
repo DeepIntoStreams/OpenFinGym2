@@ -46,6 +46,10 @@ Notes:
 - The files should be written to the same folder as the script
 - If any random sampling is used, the process should be seeded
 - A dataset category may be empty, in which case skip it rather than writing a placeholder file
+- API keys will be provided as environment variables to access the following data services:
+
+  - Kaggle with `KAGGLE_API_TOKEN` (which has a Python library `kagglehub`)
+  - Alpaca with `ALPACA_API_KEY` and `ALPACA_SECRET_KEY` (which has a Python library `alpaca-py`)
 
 Specification:
 
