@@ -42,6 +42,8 @@ You should also produce a list of the Python requirements required by the script
 
 Notes:
 
+- You can use the provided tools to confirm your code is correct, and to interact with
+  Github and data providers.
 - The datasets should be written to the files assigned in the specification
 - The files should be written to the same folder as the script
 - If any random sampling is used, the process should be seeded

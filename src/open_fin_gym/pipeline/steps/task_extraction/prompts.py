@@ -46,7 +46,7 @@ perform assessment. As such it should contain sufficient unambiguous detail requ
 - If the data in the paper is not publicly available then you may create a plan that recreates the experiment from public data
   sources.
 - Any parameters required to sample data should specified (e.g. date-ranges, periodicity)
-- The following data sources are recommended (either public or API keys will be provided);
+- The following data sources are recommended (either public sources or API keys will be provided);
   - Public git repositories
   - Any datasets with public download links
   - Yahoo finance
