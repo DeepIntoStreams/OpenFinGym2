@@ -23,7 +23,11 @@ def run_pylint(script_path: Path) -> tuple[bool, str]:
     """
     pylint_output = StringIO()
     reporter = JSON2Reporter(pylint_output)
-    Run([str(script_path), "--disable=imports"], reporter=reporter, exit=False)
+    Run(
+        [str(script_path), "--disable=imports", "--disable=maybe-no-member"],
+        reporter=reporter,
+        exit=False,
+    )
     output = pylint_output.getvalue()
     results = json.loads(output)
     counts = results["statistics"]["messageTypeCount"]
@@ -82,7 +86,8 @@ def test_train_download_script(
                 },
             )
         except BuildError as be:
-            return False, be.msg
+            logs_string = "\n".join([str(x) for x in be.build_log])
+            return False, f"Error message:{be.msg}\nBuild Logs: {logs_string}"
 
     try:
         output = client.containers.run(image, command="ls -a", remove=True)
@@ -154,7 +159,8 @@ def test_test_download_script(
                 },
             )
         except BuildError as be:
-            return False, be.msg
+            logs_string = "\n".join([str(x) for x in be.build_log])
+            return False, f"Error message:{be.msg}\nBuild Logs: {logs_string}"
 
     try:
         output = client.containers.run(image, command="ls -a", remove=True)

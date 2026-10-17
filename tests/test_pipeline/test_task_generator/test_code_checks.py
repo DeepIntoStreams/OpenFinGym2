@@ -60,6 +60,7 @@ def test_tools_code_check_tools_pylint(db: Engine, llm_config: DictConfig) -> No
     [
         ("with open('foo.txt', 'w') as f:\n\tf.write('Hello World')", True),
         ("with open('bar.txt', 'w') as f:\n\tf.write('Hello World')", False),
+        ("x 10", False),
     ],
 )
 def test_tools_code_check_tools_train_data(
