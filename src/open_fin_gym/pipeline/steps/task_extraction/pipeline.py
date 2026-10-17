@@ -25,7 +25,7 @@ from open_fin_gym.pipeline.db.tables import (
     TrainTargetDatasetCandidate,
 )
 from open_fin_gym.pipeline.db.utils import set_paper_status
-from open_fin_gym.pipeline.mcp import init_mcp_servers
+from open_fin_gym.pipeline.mcp import get_tools, init_mcp_servers
 from open_fin_gym.pipeline.steps.judge.utils import filter_chunks
 from open_fin_gym.pipeline.steps.scrape_papers.types import PaperStatus
 
@@ -88,14 +88,14 @@ class TaskExtractor:
         system_prompt = build_paper_summary_prompt(scope)
 
         async with MCPAdapter(init_mcp_servers()) as mcp_adapter:
-            tools = await mcp_adapter.list_tools()
+            tools = await get_tools(mcp_adapter)
             agent = create_agent(
                 model=self.llm,
+                tools=tools,
                 system_prompt=system_prompt,
                 response_format=ToolStrategy(
                     PaperTaskSpecification, handle_errors=False
                 ),
-                tools=tools,
             )
 
             for paper in papers:

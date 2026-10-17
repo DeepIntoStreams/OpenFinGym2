@@ -22,7 +22,7 @@ from open_fin_gym.pipeline.db.tables import (
     TaskStatus,
 )
 from open_fin_gym.pipeline.db.utils import set_task_candidate_status
-from open_fin_gym.pipeline.mcp import init_mcp_servers
+from open_fin_gym.pipeline.mcp import get_tools, init_mcp_servers
 from open_fin_gym.pipeline.steps.task_extraction.utils import (
     build_task_specification,
 )
@@ -83,8 +83,10 @@ class TaskGenerator:
             Tuple containing boolean flag indicating success/failure of
             checks, and string containing any error messages
             """
-            with NamedTemporaryFile() as f:
-                f.write(code)
+
+            with NamedTemporaryFile(suffix=".py") as f:
+                with open(f.name, "w") as wf:
+                    wf.write(code)
                 return run_pylint(Path(f.name))
 
         def check_training_data_script(
@@ -167,7 +169,7 @@ class TaskGenerator:
         logger.info(f"Generating {len(task_specs)} tasks for scope {scope.name}")
 
         async with MCPAdapter(init_mcp_servers()) as mcp_adapter:
-            mcp_tools = await mcp_adapter.list_tools()
+            mcp_tools = await get_tools(mcp_adapter)
 
             for task_spec in task_specs:
                 expected_train_files = (

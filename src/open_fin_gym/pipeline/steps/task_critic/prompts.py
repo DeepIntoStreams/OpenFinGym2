@@ -84,11 +84,10 @@ class TaskCritique(BaseModel):
     data_availability_assessment: str
     requires_authentication: bool = Field(
         description=(
-            "True if retrieving the dataset requires an account, login, API "
-            "key, or acceptance of terms (e.g. Kaggle, most non-API academic "
-            "portals). False if it's retrievable by an anonymous, scripted "
-            "request with no credentials — a named pricing vendor like "
-            "Bloomberg does NOT count as requiring authentication if the "
+            "True if retrieving the dataset requires an account, login, or API "
+            "key that is not provided. False if it's retrievable by a scripted "
+            "request anonymously or using a provided API key — a named pricing vendor "
+            "like Bloomberg does NOT count as requiring authentication if the "
             "same standard market-data series is available elsewhere with "
             "no login."
         )
