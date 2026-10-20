@@ -83,8 +83,9 @@ def run_pipeline(cfg: PipelineConfig) -> None:
         task_extractor = TaskExtractor(db_engine, cfg.task_extractor)
         task_extractor.run(output_dir, scopes)
 
-        task_critic = TaskCritic(db_engine, cfg.task_critic)
-        task_critic.run(output_dir, scopes)
+        if cfg.enable_task_critic:
+            task_critic = TaskCritic(db_engine, cfg.task_critic)
+            task_critic.run(output_dir, scopes)
 
         task_generator = TaskGenerator(db_engine, cfg.task_generator)
         task_generator.run(output_dir, scopes)

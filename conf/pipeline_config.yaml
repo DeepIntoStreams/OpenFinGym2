@@ -9,6 +9,7 @@ defaults:
   - task_critic: default_task_critic
   - task_generator: default_task_generator
   - task_exporter: default_task_exporter
+enable_task_critic: false
 db_engine: sqlite:///./pipeline.db
 # Queries are arXiv search expressions and carry their own field prefix. Only the first
 # clause needs one; later clauses default to all:. Multi-word terms must be quoted, as an
