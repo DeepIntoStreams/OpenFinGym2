@@ -19,6 +19,7 @@ jobs:
     if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
+      - uses: docker/setup-docker-action@v5
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
