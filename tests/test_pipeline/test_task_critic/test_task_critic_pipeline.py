@@ -1,12 +1,11 @@
 from unittest.mock import MagicMock
 
 import pytest
-from sqlalchemy import create_engine, select
+from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from open_fin_gym.pipeline.config import Scope
 from open_fin_gym.pipeline.db.tables import (
-    Base,
     JudgeLabel,
     MetricCandidate,
     TaskCandidate,
@@ -24,13 +23,6 @@ from open_fin_gym.pipeline.steps.task_critic.prompts import TaskCritique
 from open_fin_gym.pipeline.steps.task_extraction.utils import (
     build_task_specification,
 )
-
-
-@pytest.fixture
-def db():
-    engine = create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(engine)
-    return engine
 
 
 @pytest.fixture
@@ -57,7 +49,7 @@ def _dataset(
 
 
 def make_task_candidate(
-    db,
+    db: Engine,
     scope_id: str,
     paper_id: str = "p1",
     *,
@@ -71,7 +63,8 @@ def make_task_candidate(
             paper_id=paper_id,
             task_name="task",
             task_type=task_type,
-            description="desc",
+            plan="plan",
+            instructions="instructions",
             status=TaskCandidateStatus.NEW,
         )
 
@@ -143,7 +136,7 @@ def _get_status(db, task_id: int) -> TaskCandidateStatus:
         )
 
 
-def test_approves_well_formed_candidate(db, scope, tmp_path):
+def test_approves_well_formed_candidate(db: Engine, scope, tmp_path):
     task_id = make_task_candidate(db, scope.id)
     critic = make_critic(db)
     critic.llm.with_structured_output.return_value.invoke.return_value = TaskCritique(
