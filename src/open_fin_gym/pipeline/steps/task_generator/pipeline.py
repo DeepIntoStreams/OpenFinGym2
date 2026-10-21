@@ -1,8 +1,15 @@
+import asyncio
 import logging
 from pathlib import Path
+from tempfile import NamedTemporaryFile
+from typing import Callable
 
 from hydra.utils import instantiate
 from jinja2 import Environment, FileSystemLoader
+from langchain.agents import create_agent
+from langchain.agents.structured_output import ToolStrategy
+from langchain.mcp import MCPAdapter
+from langchain.tools import tool
 from langchain_core.language_models import BaseChatModel
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
@@ -15,6 +22,7 @@ from open_fin_gym.pipeline.db.tables import (
     TaskStatus,
 )
 from open_fin_gym.pipeline.db.utils import set_task_candidate_status
+from open_fin_gym.pipeline.mcp import get_tools, init_mcp_servers
 from open_fin_gym.pipeline.steps.task_extraction.utils import (
     build_task_specification,
 )
@@ -58,6 +66,79 @@ class TaskGenerator:
         self.test_sh_template = self.template_env.get_template("test.sh.j2")
         assert isinstance(self.llm, BaseChatModel)
 
+    def get_code_check_tools(
+        self,
+        expected_train_files: list[str],
+        expected_test_files: list[str],
+    ) -> list[Callable]:
+
+        def run_pylint_checks(code: str) -> tuple[bool, str]:
+            """
+            Run PyLint checks on Python code to detect code errors
+
+            Args:
+                code: Python code string
+
+            Returns:
+            Tuple containing boolean flag indicating success/failure of
+            checks, and string containing any error messages
+            """
+
+            with NamedTemporaryFile(suffix=".py") as f:
+                with open(f.name, "w") as wf:
+                    wf.write(code)
+                return run_pylint(Path(f.name))
+
+        def check_training_data_script(
+            download_script: str,
+            requirements: list[str],
+        ) -> tuple[bool, str]:
+            """
+            Run training data download script and check it generates
+            the expected files
+
+            Args:
+                download_script: Python train/test data download script
+                requirements: List of Python requirements used by the script
+
+            Returns:
+            Tuple containing success flag and run logs
+            """
+            return test_train_download_script(
+                self.train_docker_template,
+                download_script,
+                requirements,
+                expected_train_files,
+            )
+
+        def check_test_data_script(
+            download_script: str,
+            verification_script: str,
+            requirements: list[str],
+        ) -> tuple[bool, str]:
+            """
+            Run testing data download script and check it generates
+            the expected files
+
+            Args:
+                download_script: Python test data download script
+                verification_script: Python verifier script
+                requirements: List of Python requirements used by the script
+
+            Returns:
+            Tuple containing success flag and run logs
+            """
+            return test_test_download_script(
+                self.test_docker_template,
+                self.test_sh_template,
+                download_script,
+                verification_script,
+                requirements,
+                expected_test_files,
+            )
+
+        return [run_pylint_checks, check_training_data_script, check_test_data_script]
+
     def run(self, output_path: Path, scopes: list[Scope]) -> None:
         """
         Run task generation across provided scopes
@@ -70,9 +151,9 @@ class TaskGenerator:
         output_path.mkdir(exist_ok=True)
 
         for scope in scopes:
-            self.extract_scope(scope, output_path)
+            asyncio.run(self.extract_scope(scope, output_path))
 
-    def extract_scope(self, scope: Scope, output_path: Path) -> None:
+    async def extract_scope(self, scope: Scope, output_path: Path) -> None:
 
         scripts_path = output_path / "scripts/"
         scripts_path.mkdir(exist_ok=True)
@@ -87,132 +168,160 @@ class TaskGenerator:
 
         logger.info(f"Generating {len(task_specs)} tasks for scope {scope.name}")
 
-        for task_spec in task_specs:
-            dataset_prompt = build_dataset_download_prompt(task_spec)
-            metric_prompt = build_metric_prompt(task_spec, scope.task_params)
-            description_prompt = build_description_summary_prompt(
-                task_spec.task_description
-            )
-            difficulty_prompt = build_difficulty_explanation_prompt(
-                task_spec.task_description
-            )
+        async with MCPAdapter(init_mcp_servers()) as mcp_adapter:
+            mcp_tools = await get_tools(mcp_adapter)
 
-            try:
-                dataset_scripts: DatasetRetrieval = self.llm.with_structured_output(
-                    DatasetRetrieval
-                ).invoke(dataset_prompt)
-                assessment_script: Assessment = self.llm.with_structured_output(
-                    Assessment
-                ).invoke(metric_prompt)
-                short_description = self.llm.invoke(description_prompt).content
-                difficulty_explanation = self.llm.invoke(difficulty_prompt).content
-
-                requirements = list(
-                    set(dataset_scripts.requirements).union(
-                        set(assessment_script.requirements)
-                    )
-                )
-                instructions = self.instructions_template.render(
-                    task_description=task_spec.task_description,
-                    training_inputs=task_spec.training_inputs,
-                    training_targets=task_spec.training_targets,
-                    test_inputs=task_spec.test_inputs,
-                    test_outputs=task_spec.test_outputs,
-                    metrics=task_spec.metrics,
-                )
-
-                task_path = scripts_path / f"{task_spec.task_name}"
-                task_path.mkdir(exist_ok=True)
-
-                # Write files and run PyLint over generated Python scripts
-                with open(task_path / "train.py", "w") as f:
-                    f.write(dataset_scripts.training_script)
-
-                train_pass, pylint_messages = run_pylint(task_path / "train.py")
-
-                if not train_pass:
-                    raise RuntimeError(
-                        f"PyLint detected the following errors in the train data script \n\n{pylint_messages}"
-                    )
-
-                with open(task_path / "test.py", "w") as f:
-                    f.write(dataset_scripts.testing_script)
-
-                test_pass, pylint_messages = run_pylint(task_path / "test.py")
-
-                if not test_pass:
-                    raise RuntimeError(
-                        f"PyLint detected the following errors in the test data script \n\n{pylint_messages}"
-                    )
-
-                with open(task_path / "verifier.py", "w") as f:
-                    f.write(assessment_script.assessment_script)
-
-                verifier_pass, pylint_messages = run_pylint(task_path / "verifier.py")
-
-                if not verifier_pass:
-                    raise RuntimeError(
-                        f"PyLint detected the following errors in the verifier script \n\n{pylint_messages}"
-                    )
-
-                with open(task_path / "requirements.txt", "w") as f:
-                    f.write("\n".join(requirements))
-
-                with open(task_path / "instruction.md", "w") as f:
-                    f.write(instructions)
-
-                # Test Dockerfiles build and data is retrieved
-                train_build_success, train_build_message = test_train_download_script(
-                    self.train_docker_template,
-                    dataset_scripts.training_script,
-                    requirements,
+            for task_spec in task_specs:
+                expected_train_files = (
                     [x.filename for x in task_spec.training_inputs]
                     + [x.filename for x in task_spec.training_targets]
-                    + [x.filename for x in task_spec.test_inputs],
+                    + [x.filename for x in task_spec.test_inputs]
                 )
-                if not train_build_success:
-                    raise RuntimeError(
-                        f"Train DockerFile build failed - {train_build_message}"
+                expected_test_files = [x.filename for x in task_spec.test_targets]
+
+                code_tools = [
+                    tool(t)
+                    for t in self.get_code_check_tools(
+                        expected_train_files,
+                        expected_test_files,
+                    )
+                ]
+                dataset_agent = create_agent(
+                    model=self.llm,
+                    response_format=ToolStrategy(DatasetRetrieval, handle_errors=False),
+                    tools=mcp_tools + code_tools,
+                )
+
+                dataset_prompt = build_dataset_download_prompt(task_spec)
+                metric_prompt = build_metric_prompt(task_spec, scope.task_params)
+                description_prompt = build_description_summary_prompt(
+                    task_spec.task_instructions
+                )
+                difficulty_prompt = build_difficulty_explanation_prompt(
+                    task_spec.task_instructions
+                )
+
+                try:
+                    dataset_response = await dataset_agent.ainvoke(
+                        {"messages": [{"role": "user", "content": dataset_prompt}]}
+                    )
+                    dataset_scripts = dataset_response["structured_response"]
+
+                    assessment_script: Assessment = self.llm.with_structured_output(
+                        Assessment
+                    ).invoke(metric_prompt)
+
+                    short_description = self.llm.invoke(description_prompt).content
+                    difficulty_explanation = self.llm.invoke(difficulty_prompt).content
+
+                    requirements = list(
+                        set(dataset_scripts.requirements).union(
+                            set(assessment_script.requirements)
+                        )
+                    )
+                    instructions = self.instructions_template.render(
+                        task_description=task_spec.task_instructions,
+                        training_inputs=task_spec.training_inputs,
+                        training_targets=task_spec.training_targets,
+                        test_inputs=task_spec.test_inputs,
+                        test_outputs=task_spec.test_outputs,
+                        metrics=task_spec.metrics,
                     )
 
-                test_build_success, test_build_message = test_test_download_script(
-                    self.test_docker_template,
-                    self.test_sh_template,
-                    dataset_scripts.testing_script,
-                    assessment_script.assessment_script,
-                    requirements,
-                    [x.filename for x in task_spec.test_targets],
-                )
-                if not test_build_success:
-                    raise RuntimeError(
-                        f"Test DockerFile build failed - {test_build_message}"
+                    task_path = scripts_path / f"{task_spec.task_name}"
+                    task_path.mkdir(exist_ok=True)
+
+                    # Write files and run PyLint over generated Python scripts
+                    with open(task_path / "train.py", "w") as f:
+                        f.write(dataset_scripts.training_script)
+
+                    train_pass, pylint_messages = run_pylint(task_path / "train.py")
+
+                    if not train_pass:
+                        raise RuntimeError(
+                            f"PyLint detected the following errors in the train data script \n\n{pylint_messages}"
+                        )
+
+                    with open(task_path / "test.py", "w") as f:
+                        f.write(dataset_scripts.testing_script)
+
+                    test_pass, pylint_messages = run_pylint(task_path / "test.py")
+
+                    if not test_pass:
+                        raise RuntimeError(
+                            f"PyLint detected the following errors in the test data script \n\n{pylint_messages}"
+                        )
+
+                    with open(task_path / "verifier.py", "w") as f:
+                        f.write(assessment_script.assessment_script)
+
+                    verifier_pass, pylint_messages = run_pylint(
+                        task_path / "verifier.py"
                     )
 
-                new_task = Task(
-                    task_candidate_id=task_spec.id,
-                    name=task_spec.task_name,
-                    status=TaskStatus.NEW,
-                    train_script=dataset_scripts.training_script,
-                    test_script=dataset_scripts.testing_script,
-                    assessment_script=assessment_script.assessment_script,
-                    requirements=requirements,
-                    instructions=instructions,
-                    short_description=short_description,
-                    difficulty_explanation=difficulty_explanation,
-                )
+                    if not verifier_pass:
+                        raise RuntimeError(
+                            f"PyLint detected the following errors in the verifier script \n\n{pylint_messages}"
+                        )
 
-                with Session(self.db) as session:
-                    session.add(new_task)
-                    session.commit()
+                    with open(task_path / "requirements.txt", "w") as f:
+                        f.write("\n".join(requirements))
 
-                set_task_candidate_status(
-                    self.db, task_spec.id, TaskCandidateStatus.PROCESSED
-                )
+                    with open(task_path / "instruction.md", "w") as f:
+                        f.write(instructions)
 
-            except Exception as e:
-                set_task_candidate_status(
-                    self.db, task_spec.id, TaskCandidateStatus.FAILED
-                )
-                logger.error(
-                    f"Task generation failed for task {task_spec.task_name} - {e}"
-                )
+                    # Test Dockerfiles build and data is retrieved
+                    train_build_success, train_build_message = (
+                        test_train_download_script(
+                            self.train_docker_template,
+                            dataset_scripts.training_script,
+                            requirements,
+                            expected_train_files,
+                        )
+                    )
+                    if not train_build_success:
+                        raise RuntimeError(
+                            f"Train DockerFile build failed - {train_build_message}"
+                        )
+
+                    test_build_success, test_build_message = test_test_download_script(
+                        self.test_docker_template,
+                        self.test_sh_template,
+                        dataset_scripts.testing_script,
+                        assessment_script.assessment_script,
+                        requirements,
+                        expected_test_files,
+                    )
+                    if not test_build_success:
+                        raise RuntimeError(
+                            f"Test DockerFile build failed - {test_build_message}"
+                        )
+
+                    new_task = Task(
+                        task_candidate_id=task_spec.id,
+                        name=task_spec.task_name,
+                        status=TaskStatus.NEW,
+                        train_script=dataset_scripts.training_script,
+                        test_script=dataset_scripts.testing_script,
+                        assessment_script=assessment_script.assessment_script,
+                        requirements=requirements,
+                        instructions=instructions,
+                        short_description=short_description,
+                        difficulty_explanation=difficulty_explanation,
+                    )
+
+                    with Session(self.db) as session:
+                        session.add(new_task)
+                        session.commit()
+
+                    set_task_candidate_status(
+                        self.db, task_spec.id, TaskCandidateStatus.PROCESSED
+                    )
+
+                except Exception as e:
+                    set_task_candidate_status(
+                        self.db, task_spec.id, TaskCandidateStatus.FAILED
+                    )
+                    logger.error(
+                        f"Task generation failed for task {task_spec.task_name} - {e}"
+                    )

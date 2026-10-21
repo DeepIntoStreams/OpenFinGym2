@@ -19,7 +19,7 @@ invent details; judge only what is written below.
 
 Task name: {spec.task_name}
 Task type: {spec.task_type}
-Task description: {spec.task_description}
+Task implementation plan: {spec.task_plan}
 
 Training input datasets:
 {_join(spec.training_inputs)}
@@ -54,11 +54,17 @@ Checks to make:
    not itself disqualifying if the same series is a standard public-market
    quantity (prices, returns, volumes, OHLCV, standard macro indicators) —
    only flag it if the specific instrument, period, or frequency is vague or
-   unspecified. This vendor carve-out does NOT apply to platforms that gate
-   the dataset itself behind an account or API key (e.g. Kaggle) — set
-   requires_authentication=True for those regardless of how well-known the
-   benchmark is. Flag genuinely proprietary content (hand-curated labels,
-   broker-internal order flow, full-depth order-book data) as an issue.
+   unspecified. As such this vendor carve-out does NOT apply to platforms that gate
+   the dataset itself behind an account or API key. API keys WILL be provided for the
+   following data services:
+
+   - Kaggle
+   - Alpaca
+
+   otherwise you should set `requires_authentication=True` for those regardless of
+   how well-known the benchmark is. Flag genuinely proprietary content
+   (hand-curated labels, broker-internal order flow, full-depth order-book data) as
+   an issue.
 
 If evidence is weak, ambiguous, or incomplete, reject by default.
 
@@ -78,11 +84,10 @@ class TaskCritique(BaseModel):
     data_availability_assessment: str
     requires_authentication: bool = Field(
         description=(
-            "True if retrieving the dataset requires an account, login, API "
-            "key, or acceptance of terms (e.g. Kaggle, most non-API academic "
-            "portals). False if it's retrievable by an anonymous, scripted "
-            "request with no credentials — a named pricing vendor like "
-            "Bloomberg does NOT count as requiring authentication if the "
+            "True if retrieving the dataset requires an account, login, or API "
+            "key that is not provided. False if it's retrievable by a scripted "
+            "request anonymously or using a provided API key — a named pricing vendor "
+            "like Bloomberg does NOT count as requiring authentication if the "
             "same standard market-data series is available elsewhere with "
             "no login."
         )

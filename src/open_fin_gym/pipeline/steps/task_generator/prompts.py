@@ -42,15 +42,21 @@ You should also produce a list of the Python requirements required by the script
 
 Notes:
 
+- You can use the provided tools to confirm your code is correct, and to interact with
+  Github and data providers.
 - The datasets should be written to the files assigned in the specification
 - The files should be written to the same folder as the script
 - If any random sampling is used, the process should be seeded
 - A dataset category may be empty, in which case skip it rather than writing a placeholder file
+- API keys will be provided as environment variables to access the following data services:
+
+  - Kaggle with `KAGGLE_API_TOKEN` (which has a Python library `kagglehub`)
+  - Alpaca with `ALPACA_API_KEY` and `ALPACA_SECRET_KEY` (which has a Python library `alpaca-py`)
 
 Specification:
 
 Task name: {task_spec.task_name}
-Task description: {task_spec.task_description}
+Task implementation plan: {task_spec.task_plan}
 Training input datasets:
     {training_inputs}
 Training target / ground-truth datasets:
@@ -84,7 +90,7 @@ You should also produce a list of Python requirements required by the assessment
 Specification:
 
 Task name: {task_spec.task_name}
-Task description: {task_spec.task_description}
+Task implementation plan: {task_spec.task_plan}
 Test outputs (produced by the user):
     {test_outputs}
 Test targets/ground-truth:

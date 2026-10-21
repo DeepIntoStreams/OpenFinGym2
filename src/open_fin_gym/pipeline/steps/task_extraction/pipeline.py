@@ -1,9 +1,13 @@
+import asyncio
 import json
 import logging
 from pathlib import Path
 from typing import Optional
 
 from hydra.utils import instantiate
+from langchain.agents import create_agent
+from langchain.agents.structured_output import ToolStrategy
+from langchain.mcp import MCPAdapter
 from langchain_core.language_models import BaseChatModel
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
@@ -21,6 +25,7 @@ from open_fin_gym.pipeline.db.tables import (
     TrainTargetDatasetCandidate,
 )
 from open_fin_gym.pipeline.db.utils import set_paper_status
+from open_fin_gym.pipeline.mcp import get_tools, init_mcp_servers
 from open_fin_gym.pipeline.steps.judge.utils import filter_chunks
 from open_fin_gym.pipeline.steps.scrape_papers.types import PaperStatus
 
@@ -56,9 +61,9 @@ class TaskExtractor:
         output_path.mkdir(exist_ok=True)
 
         for scope in scopes:
-            self.extract_scope(scope, output_path)
+            asyncio.run(self.extract_scope(scope, output_path))
 
-    def extract_scope(self, scope: Scope, output_path: Path) -> None:
+    async def extract_scope(self, scope: Scope, output_path: Path) -> None:
         """
         Extract task from accepted papers for a given scope
 
@@ -80,82 +85,101 @@ class TaskExtractor:
         dataset_candidates = []
         metric_candidates = []
 
-        for paper in papers:
-            with Session(self.db) as session:
-                stmt = select(Chunk).where(Chunk.paper_id == paper.paper_id)
-                chunks: list[Chunk] = session.execute(stmt).scalars().all()
+        system_prompt = build_paper_summary_prompt(scope)
 
-            chunks = filter_chunks(chunks)
-            extract = "\n\n".join([x.text for x in chunks])
-            prompt = build_paper_summary_prompt(scope, paper, extract)
-            llm = self.llm.with_structured_output(PaperTaskSpecification)
+        async with MCPAdapter(init_mcp_servers()) as mcp_adapter:
+            tools = await get_tools(mcp_adapter)
+            agent = create_agent(
+                model=self.llm,
+                tools=tools,
+                system_prompt=system_prompt,
+                response_format=ToolStrategy(
+                    PaperTaskSpecification, handle_errors=False
+                ),
+            )
 
-            try:
-                task_summary: Optional[PaperTaskSpecification] = llm.invoke(prompt)
-                task_summaries.append(task_summary)
-                set_paper_status(self.db, paper, PaperStatus.TASK_EXTRACTED)
-            except Exception as e:
-                logger.error(
-                    f"Task extraction failed from paper {paper.paper_id} from scope {scope.id} due to {e}"
-                )
-                task_summary: Optional[PaperTaskSpecification] = None
-                set_paper_status(self.db, paper, PaperStatus.TASK_EXTRACTION_FAILED)
+            for paper in papers:
+                with Session(self.db) as session:
+                    stmt = select(Chunk).where(Chunk.paper_id == paper.paper_id)
+                    chunks: list[Chunk] = session.execute(stmt).scalars().all()
 
-            if task_summary:
-                task_candidate = TaskCandidate(
-                    scope_id=scope.id,
-                    paper_id=paper.paper_id,
-                    task_name=task_summary.task_name,
-                    task_type=scope.task_type,
-                    description=task_summary.task_description,
-                    status=TaskCandidateStatus.NEW,
-                )
+                chunks = filter_chunks(chunks)
+                extract = "\n\n".join([x.text for x in chunks])
 
-                training_input_data = unpack_datasets(
-                    TrainInputDatasetCandidate,
-                    task_candidate,
-                    task_summary.training_inputs,
-                )
-                task_candidate.training_inputs.extend(training_input_data)
-                dataset_candidates.extend(training_input_data)
+                prompt = f"Title: {paper.title}\n\n{extract}"
 
-                training_target_data = unpack_datasets(
-                    TrainTargetDatasetCandidate,
-                    task_candidate,
-                    task_summary.training_targets,
-                )
-                task_candidate.training_targets.extend(training_target_data)
-                dataset_candidates.extend(training_target_data)
+                try:
+                    response = await agent.ainvoke(
+                        {"messages": [{"role": "user", "content": prompt}]}
+                    )
+                    task_summary = response["structured_response"]
+                    task_summaries.append(task_summary)
+                    set_paper_status(self.db, paper, PaperStatus.TASK_EXTRACTED)
+                except Exception as e:
+                    logger.error(
+                        f"Task extraction failed from paper {paper.paper_id} from scope {scope.id} due to {e}"
+                    )
+                    task_summary: Optional[PaperTaskSpecification] = None
+                    set_paper_status(self.db, paper, PaperStatus.TASK_EXTRACTION_FAILED)
 
-                test_input_datasets = unpack_datasets(
-                    TestInputDatasetCandidate, task_candidate, task_summary.test_inputs
-                )
-                task_candidate.test_inputs.extend(test_input_datasets)
-                dataset_candidates.extend(test_input_datasets)
+                if task_summary:
+                    task_candidate = TaskCandidate(
+                        scope_id=scope.id,
+                        paper_id=paper.paper_id,
+                        task_name=task_summary.task_name,
+                        task_type=scope.task_type,
+                        plan=task_summary.task_implementation_plan,
+                        instructions=task_summary.task_instructions,
+                        status=TaskCandidateStatus.NEW,
+                    )
 
-                test_output_datasets = unpack_datasets(
-                    TestOutputDatasetCandidate,
-                    task_candidate,
-                    task_summary.test_outputs,
-                )
-                task_candidate.test_outputs.extend(test_output_datasets)
-                dataset_candidates.extend(test_output_datasets)
+                    training_input_data = unpack_datasets(
+                        TrainInputDatasetCandidate,
+                        task_candidate,
+                        task_summary.training_inputs,
+                    )
+                    task_candidate.training_inputs.extend(training_input_data)
+                    dataset_candidates.extend(training_input_data)
 
-                test_target_datasets = unpack_datasets(
-                    TestTargetDatasetCandidate,
-                    task_candidate,
-                    task_summary.test_targets,
-                )
-                task_candidate.test_targets.extend(test_target_datasets)
-                dataset_candidates.extend(test_target_datasets)
+                    training_target_data = unpack_datasets(
+                        TrainTargetDatasetCandidate,
+                        task_candidate,
+                        task_summary.training_targets,
+                    )
+                    task_candidate.training_targets.extend(training_target_data)
+                    dataset_candidates.extend(training_target_data)
 
-                metrics = unpack_metrics(
-                    task_candidate, task_summary.assessment_metrics
-                )
-                task_candidate.assessment_metrics.extend(metrics)
-                metric_candidates.extend(metrics)
+                    test_input_datasets = unpack_datasets(
+                        TestInputDatasetCandidate,
+                        task_candidate,
+                        task_summary.test_inputs,
+                    )
+                    task_candidate.test_inputs.extend(test_input_datasets)
+                    dataset_candidates.extend(test_input_datasets)
 
-                task_candidates.append(task_candidate)
+                    test_output_datasets = unpack_datasets(
+                        TestOutputDatasetCandidate,
+                        task_candidate,
+                        task_summary.test_outputs,
+                    )
+                    task_candidate.test_outputs.extend(test_output_datasets)
+                    dataset_candidates.extend(test_output_datasets)
+
+                    test_target_datasets = unpack_datasets(
+                        TestTargetDatasetCandidate,
+                        task_candidate,
+                        task_summary.test_targets,
+                    )
+                    task_candidate.test_targets.extend(test_target_datasets)
+                    dataset_candidates.extend(test_target_datasets)
+
+                    metrics = unpack_metrics(
+                        task_candidate, task_summary.assessment_metrics
+                    )
+                    task_candidate.assessment_metrics.extend(metrics)
+                    metric_candidates.extend(metrics)
+
+                    task_candidates.append(task_candidate)
 
         with Session(self.db) as session:
             session.add_all(task_candidates)

@@ -32,6 +32,9 @@ class TaskExporter:
             "train.Dockerfile.j2"
         )
         self.test_docker_template = self.template_env.get_template("test.Dockerfile.j2")
+        self.docker_compose_template = self.template_env.get_template(
+            "docker-compose.yaml.j2"
+        )
         self.test_script_template = self.template_env.get_template("test.sh.j2")
         self.task_meta = cfg.task_config
 
@@ -79,12 +82,18 @@ class TaskExporter:
                 env_dir = task_dir / "environment"
                 env_dir.mkdir()
 
+                docker_compose = self.docker_compose_template.render()
+
                 train_docker = self.train_docker_template.render(
-                    requirements=task.requirements
+                    requirements=task.requirements,
+                    test=False,
                 )
 
                 with open(env_dir / "Dockerfile", "w") as f:
                     f.write(train_docker)
+
+                with open(env_dir / "docker-compose.yaml", "w") as f:
+                    f.write(docker_compose)
 
                 with open(env_dir / "data.py", "w") as f:
                     f.write(task.train_script)
@@ -93,11 +102,14 @@ class TaskExporter:
                 test_dir.mkdir()
 
                 test_docker = self.test_docker_template.render(
-                    requirements=task.requirements
+                    requirements=task.requirements, test=False
                 )
 
                 with open(test_dir / "Dockerfile", "w") as f:
                     f.write(test_docker)
+
+                with open(test_dir / "docker-compose.yaml", "w") as f:
+                    f.write(docker_compose)
 
                 with open(test_dir / "data.py", "w") as f:
                     f.write(task.test_script)

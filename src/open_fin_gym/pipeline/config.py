@@ -52,6 +52,7 @@ def scope_context(scope: Scope) -> str:
 @dataclass
 class PipelineConfig:
     db_engine: str
+    enable_task_critic: bool
     scraping: ScrapingConfig
     retrieval: RetrievalConfig
     judge: JudgeConfig

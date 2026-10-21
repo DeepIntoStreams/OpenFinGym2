@@ -133,7 +133,8 @@ class TaskCandidate(Base):
     status = Column(Enum(TaskCandidateStatus), index=True)
     task_type = Column(Enum(TaskType))
     task_name = Column(String)
-    description = Column(String)
+    plan = Column(String)
+    instructions = Column(String)
     training_inputs: Mapped[List["TrainInputDatasetCandidate"]] = relationship(
         "TrainInputDatasetCandidate", backref="task_candidate"
     )
