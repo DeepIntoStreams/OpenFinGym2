@@ -214,17 +214,13 @@ wheels = [
 
 [[package]]
 name = "alpaca-mcp-server"
-version = "2.3.0"
-source = { registry = "https://pypi.org/simple" }
+version = "2.4.0"
+source = { git = "https://github.com/JLanghamLopez/alpaca-mcp-server.git#bfcd9645081ceaf2aeb2edfb493bccba1eb3c54b" }
 dependencies = [
     { name = "click" },
     { name = "fastmcp" },
     { name = "httpx" },
     { name = "python-dotenv" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/8a/76/683f400b3a18b904ca75d6513c303b6088e1fc8c9c59f6203c19215af224/alpaca_mcp_server-2.3.0.tar.gz", hash = "sha256:326fb3a0425e2fed97f4642171388dd801c48531de5d877c78d8df767ced65eb", size = 112820, upload-time = "2026-08-24T13:09:18.552Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/d1/28/926353484d138bb5c099185402918ffadafe61e3653834689f1435c9051f/alpaca_mcp_server-2.3.0-py3-none-any.whl", hash = "sha256:6d94764ff32b30558599f27db9139b0a160ebc20b53dacd11e2826059fcfee87", size = 108705, upload-time = "2026-08-24T13:09:19.762Z" },
 ]
 
 [[package]]
@@ -3147,7 +3143,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "alpaca-mcp-server", specifier = ">=2.3.0" },
+    { name = "alpaca-mcp-server", git = "https://github.com/JLanghamLopez/alpaca-mcp-server.git" },
     { name = "arxiv", specifier = ">=4.0.0" },
     { name = "docker", specifier = ">=7.2.0" },
     { name = "habanero", specifier = ">=2.4.0" },

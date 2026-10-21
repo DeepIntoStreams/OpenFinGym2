@@ -9,7 +9,8 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
-    "alpaca-mcp-server>=2.3.0",
+    # Use fork since main requires FastMCP < 4.0
+    "alpaca-mcp-server",
     "arxiv>=4.0.0",
     "docker>=7.2.0",
     "habanero>=2.4.0",
@@ -56,3 +57,6 @@ lint = "uv run pre-commit run --all-files"
 
 [tool.pytest.ini_options]
 python_classes = ["PytestCollect*"]
+
+[tool.uv.sources]
+alpaca-mcp-server = { git = "https://github.com/JLanghamLopez/alpaca-mcp-server.git" }
