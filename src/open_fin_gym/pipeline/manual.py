@@ -3,19 +3,10 @@ from pathlib import Path
 
 import hydra
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, select
-from sqlalchemy.orm import Session
+from sqlalchemy import create_engine
 
-from open_fin_gym.pipeline.db.tables import (
-    Base,
-    PaperStatus,
-    TaskCandidate,
-    TaskCandidateStatus,
-)
-from open_fin_gym.pipeline.db.utils import (
-    set_paper_status,
-    set_task_candidate_status,
-)
+from open_fin_gym.pipeline.db.tables import Base, PaperStatus
+from open_fin_gym.pipeline.db.utils import set_paper_status
 from open_fin_gym.pipeline.steps.judge.pipeline import Judge
 from open_fin_gym.pipeline.steps.retrieval.pipeline import PaperRetrieval
 from open_fin_gym.pipeline.steps.scrape_papers.pipeline import (
@@ -53,7 +44,7 @@ def run_manual_pipeline(cfg: ManualPipelineConfig) -> None:
     Base.metadata.create_all(db_engine)
 
     with context:
-        logger.info("Starting pipeline")
+        logger.info(f"Starting pipeline for paper {cfg.arxiv_id}")
 
         scraping_pipeline = PaperScrapingPipeline(db_engine, cfg.scraping)
         paper = scraping_pipeline.scrape_paper(output_dir, scope, cfg.arxiv_id)
@@ -65,23 +56,17 @@ def run_manual_pipeline(cfg: ManualPipelineConfig) -> None:
             judge_pipeline = Judge(db_engine, cfg.judge)
             judge_pipeline.run(output_dir, [scope])
         else:
+            logger.info("Skipping paper judgement stage and auto accepting paper")
             set_paper_status(db_engine, paper, PaperStatus.ACCEPTED)
 
         task_extractor = TaskExtractor(db_engine, cfg.task_extractor)
         task_extractor.run(output_dir, [scope])
 
+        task_critic = TaskCritic(db_engine, cfg.task_critic)
         if cfg.enable_task_critic:
-            task_critic = TaskCritic(db_engine, cfg.task_critic)
             task_critic.run(output_dir, [scope])
         else:
-            with Session(db_engine) as session:
-                stmt = select(TaskCandidate).where(
-                    TaskCandidate.scope_id == scope.id,
-                    TaskCandidate.paper_id == paper.paper_id,
-                )
-                candidates: list[TaskCandidate] = session.execute(stmt).scalars().all()
-                task_id = candidates[0].task_id
-            set_task_candidate_status(db_engine, task_id, TaskCandidateStatus.APPROVED)
+            task_critic.run(output_dir, [scope], auto_approve=True)
 
         task_generator = TaskGenerator(db_engine, cfg.task_generator)
         task_generator.run(output_dir, [scope])
