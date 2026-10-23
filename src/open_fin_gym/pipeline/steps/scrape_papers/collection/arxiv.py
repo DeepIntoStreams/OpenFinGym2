@@ -29,6 +29,11 @@ class ArxivClient:
         )
         self.sort_criteria = arxiv.SortCriterion[cfg.sort_by]
 
+    def get_paper(self, arxiv_id: str, scope_id: str) -> PaperRecord:
+        search = arxiv.Search(id_list=[arxiv_id], max_results=1)
+        result = next(self.client.results(search))
+        return unpack_paper_result(result, scope_id)
+
     def scrape_scope(
         self,
         scope: Scope,
@@ -74,26 +79,8 @@ class ArxivClient:
             results = self.client.results(search)
 
             for result in results:
-                paper_id = _format_arxiv_id(result.entry_id)
-                journal_ref = result.journal_ref
-                papers[paper_id] = PaperRecord(
-                    paper_id=_format_arxiv_id(result.entry_id),
-                    scope_id=scope.id,
-                    arxiv_url=result.entry_id,
-                    title=result.title,
-                    abstract=result.summary,
-                    source=SourceName.ARXIV,
-                    authors=[x.name for x in result.authors],
-                    categories=result.categories,
-                    published_at=result.published,
-                    updated_at=result.updated,
-                    pdf_url=result.pdf_url,
-                    doi=result.doi,
-                    primary_category=result.primary_category,
-                    journal_name=journal_ref,
-                    publication_types=["journal_reference"] if journal_ref else [],
-                    peer_reviewed=bool(journal_ref),
-                )
+                paper_record = unpack_paper_result(result, scope.id)
+                papers[paper_record.paper_id] = paper_record
 
         # Queries overlap, so the budget is applied to the deduplicated result
         return dict(islice(papers.items(), max_papers))
@@ -130,3 +117,26 @@ def _format_arxiv_id(arxiv_url: str) -> str:
         Id of the form 'ArXiv:2602.00086'
     """
     return f"ArXiv:{arxiv_url.split('/')[-1].split('v')[0]}"
+
+
+def unpack_paper_result(result: arxiv.Result, scope_id: str) -> PaperRecord:
+    paper_id = _format_arxiv_id(result.entry_id)
+    journal_ref = result.journal_ref
+    return PaperRecord(
+        paper_id=paper_id,
+        scope_id=scope_id,
+        arxiv_url=result.entry_id,
+        title=result.title,
+        abstract=result.summary,
+        source=SourceName.ARXIV,
+        authors=[x.name for x in result.authors],
+        categories=result.categories,
+        published_at=result.published,
+        updated_at=result.updated,
+        pdf_url=result.pdf_url,
+        doi=result.doi,
+        primary_category=result.primary_category,
+        journal_name=journal_ref,
+        publication_types=["journal_reference"] if journal_ref else [],
+        peer_reviewed=bool(journal_ref),
+    )

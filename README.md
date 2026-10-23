@@ -26,17 +26,40 @@ and training integrations.
 
 ### Running
 
+#### Installation
+
 OpenFinGym uses uv to handle dependencies and run scripts. See
 installation instructions
 [here](https://docs.astral.sh/uv/getting-started/installation/).
 
+#### Configuration
+
 The pipeline uses [Hydra](https://hydra.cc/docs/intro/) for configuration, with configuration
 files located in `./conf` by default.
 
-Any LLM API secrets should be placed in a `.env` file.
+Any API keys should be placed in a `.env` file:
+
+- LLM access token
+- Github pat token to allow agent to use the [Github MCP service](https://github.com/github/github-mcp-server)
+- Alpaca paper trading account tokens to allow agents to access the [Alpaca MCP service](https://github.com/alpacahq/alpaca-mcp-server)
+- Kaggle API token to allow agents access the [Kaggle MCP service](https://www.kaggle.com/blog/kaggles-official-mcp-server)
+
+The MCP related tokens are optional (relevant tools will be skipped if not provided),
+but they allow agents to lookup docs, repos, datasets etc.
+
+**Note: Agents are only provided MCP tools that can read data relevant to task generation,
+but it still may be sensible to generate pipeline specific tokens with low access rights.**
 
 See [here](https://deepintostreams.github.io/OpenFinGym2/configuration.html) for details of
 configuration pipeline runs.
+
+If using MlFlow for LLM tracking you should run a client with
+
+```commandline
+uv run task mlflow
+```
+
+#### Batch Pipeline
 
 The pipeline can then be run using
 
@@ -44,11 +67,16 @@ The pipeline can then be run using
 uv run task pipeline
 ```
 
-If using MlFlow for LLM tracking you should run a client with
+#### Single Paper Pipeline
+
+To run the pipeline and produce a task for a specific paper you should use
 
 ```commandline
-uv run task mlflow
+uv run task paper scopes=<SCOPE-ID> arxiv_id=<PAPER-ARXIV-ID>
 ```
+
+Where `SCOPE-ID` specifies the scope to use when generated the task,
+and `PAPER-ARXIV-ID` is the arxiv assigned id of the paper, e.g. `1706.03762v7`.
 
 ## Developers
 

@@ -1,0 +1,18 @@
+fraud_detection:
+  id: fraud_detection
+  name: "Fraud Detection"
+  task_type: "forecasting"
+  description: >
+    Detection of anomalous or fraudulent behaviour in financial systems using machine
+    learning or deep learning models, including transaction monitoring, anti-money
+    laundering, and graph-based anomaly detection in financial networks.
+  enabled: true
+  categories: [ cs.LG, cs.CR, stat.ML, q-fin.RM, q-fin.ST ]
+  queries:
+    - 'ti:("fraud" OR "money laundering" OR "financial crime" OR "anti-money laundering")
+      AND ("credit card" OR "payment" OR "banking" OR "transaction" OR "financial" OR "insurance"
+      OR "cryptocurrency")
+      AND ("machine learning" OR "deep learning" OR "graph neural network" OR "anomaly detection")'
+    - 'ti:("money laundering" OR "credit card fraud" OR "insurance fraud" OR "payment fraud"
+      OR "financial fraud" OR "transaction fraud" OR "fraud detection")
+      AND ("machine learning" OR "deep learning" OR "graph neural network" OR "GNN" OR "anomaly detection")'

@@ -34,11 +34,29 @@ class TaskCritic:
         self.llm: BaseChatModel = instantiate(cfg.llm)
         assert isinstance(self.llm, BaseChatModel)
 
-    def run(self, output_path: Path, scopes: list[Scope]) -> None:
+    def run(
+        self, output_path: Path, scopes: list[Scope], auto_approve: bool = False
+    ) -> None:
         output_path = output_path / "task_critic/"
         output_path.mkdir(exist_ok=True)
         for scope in scopes:
-            self.critique_scope(output_path, scope)
+            if auto_approve:
+                self.approve_scope(scope)
+            else:
+                self.critique_scope(output_path, scope)
+
+    def approve_scope(self, scope: Scope) -> None:
+        with Session(self.db) as session:
+            stmt = select(TaskCandidate).where(
+                TaskCandidate.scope_id == scope.id,
+                TaskCandidate.status == TaskCandidateStatus.NEW,
+            )
+            candidates: list[TaskCandidate] = session.execute(stmt).scalars().all()
+
+        for candidate in candidates:
+            set_task_candidate_status(
+                self.db, candidate.task_id, TaskCandidateStatus.APPROVED
+            )
 
     def critique_scope(self, output_path: Path, scope: Scope) -> None:
         with Session(self.db) as session:

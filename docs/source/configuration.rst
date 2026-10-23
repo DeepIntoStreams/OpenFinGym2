@@ -1,8 +1,8 @@
 .. _configuration:
 
-*************
-Configuration
-*************
+**********************
+Pipeline Configuration
+**********************
 
 The pipeline is configured with `Hydra <https://hydra.cc/>`_. ``conf/pipeline_config.yaml``
 is the root: it defines the scopes and selects one configuration file per stage
@@ -11,7 +11,8 @@ from the ``conf/`` subdirectories.
 .. code-block:: text
 
     conf/
-        pipeline_config.yaml       scopes, database, stage selection
+        pipeline_config.yaml       database, stage selection
+        scopes/                    scope details
         scraping/                  paper search
         retrieval/                 full-text download
         judge/                     paper acceptance
@@ -34,7 +35,8 @@ startup, and the LLM clients read their credentials from the environment.
 Scopes
 ======
 
-Scopes are defined under ``scopes:`` in ``conf/pipeline_config.yaml``. See
+Scopes are defined in the ``conf/scopes/`` folder and then the scopes to be included in a
+pipeline are specified in ``conf/pipeline_config.yaml`` under ``scopes``. See
 :doc:`concepts` for what the fields mean. A scope can be disabled with
 ``enabled: false`` rather than deleted, which keeps its history in the database.
 
@@ -180,7 +182,7 @@ be changed per stage ::
 
     llm:
       _target_: langchain_openai.chat_models.ChatOpenAI
-      model: gpt-4.1-mini
+      model: gpt-5.4-mini
       temperature: 0
 
 The judge and critic run at ``temperature: 0``, since they are scoring gates and

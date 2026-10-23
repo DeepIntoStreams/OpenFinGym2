@@ -3,6 +3,7 @@ Pipeline configuration classes
 """
 
 from dataclasses import dataclass, field
+from typing import Optional
 
 from open_fin_gym.pipeline.db.tables import TaskType
 
@@ -60,4 +61,19 @@ class PipelineConfig:
     task_critic: TaskCriticConfig
     task_generator: TaskGenerationConfig
     task_exporter: TaskExportConfig
-    scopes: list[Scope]
+    scopes: dict[str, Scope]
+
+
+@dataclass
+class ManualPipelineConfig:
+    arxiv_id: Optional[str]
+    scopes: dict[str, Scope]
+    scraping: ScrapingConfig
+    retrieval: RetrievalConfig
+    enable_judge: bool
+    enable_task_critic: bool
+    judge: JudgeConfig
+    task_extractor: TaskExtractionConfig
+    task_critic: TaskCriticConfig
+    task_generator: TaskGenerationConfig
+    task_exporter: TaskExportConfig

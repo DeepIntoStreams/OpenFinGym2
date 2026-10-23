@@ -1,0 +1,26 @@
+financial_return_forecasting:
+  id: financial_return_forecasting
+  name: "Financial Return Forecasting"
+  task_type: "forecasting"
+  description: >
+    Forecasting of financial returns, prices, or volatility from financial time-series
+    data using machine learning or deep learning models, including point prediction,
+    distributional forecasting, and directional prediction across asset classes such as
+    crypto, equities, FX, fixed income, commodities, ETFs, and indices.
+  enabled: true
+  categories: [ q-fin.CP, q-fin.ST, q-fin.TR, q-fin.PM, cs.LG, stat.ML ]
+  queries:
+    - 'all:("stock" OR "equity" OR "cryptocurrency" OR "foreign exchange" OR "asset return" OR "asset price"
+      OR "financial market" OR "stock index" OR "exchange rate" OR "interest rate" OR "commodity price"
+      OR "financial time series")
+      AND ("return" OR "price" OR "volatility" OR "realized volatility")
+      AND ("forecasting" OR "prediction" OR "time series")
+      AND ("LSTM" OR "Transformer" OR "neural network" OR "deep learning" OR "state space model" OR "diffusion")'
+    - 'all:("stock" OR "equity" OR "cryptocurrency" OR "foreign exchange" OR "asset return" OR "asset price"
+      OR "financial market" OR "stock index" OR "exchange rate" OR "interest rate" OR "financial time series")
+      AND ("return" OR "price" OR "volatility")
+      AND ("forecasting" OR "prediction")
+      AND ("backtest" OR "out-of-sample" OR "Sharpe" OR "drawdown" OR "transaction cost")'
+    - 'all:("limit order book" OR "order flow" OR "high-frequency trading" OR "tick data" OR "market microstructure")
+      AND ("prediction" OR "forecasting" OR "classification")
+      AND ("deep learning" OR "Transformer" OR "CNN" OR "LSTM" OR "neural network")'
