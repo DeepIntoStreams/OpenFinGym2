@@ -23,4 +23,5 @@ The pipeline can then be run using uv with ::
 
     uv run task pipeline
 
-See :ref:`configuration` for details on configuring the pipeline.
+See :ref:`configuration` for details on configuring the pipeline and
+:ref:`running` for more details.
