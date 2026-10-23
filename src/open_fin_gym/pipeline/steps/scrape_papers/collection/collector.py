@@ -37,6 +37,12 @@ class PaperCollector:
         self.crossref = CrossrefClient(crossref_config)
         self.s2 = SemanticScholarClient(s2_config)
 
+    def retrieve_paper(self, arxiv_id: str, scope_id: str) -> PaperRecord:
+        paper = self.arxiv.get_paper(arxiv_id, scope_id)
+        papers = self.crossref.enrich_doi({paper.paper_id: paper})
+        papers = self.s2.enrich(papers)
+        return papers[paper.paper_id]
+
     def collect_scope(
         self,
         scope: Scope,

@@ -1,0 +1,21 @@
+stress_testing:
+  id: stress_testing
+  name: "Stress Testing and Risk Management"
+  task_type: "forecasting"
+  description: >
+    Evaluation of financial portfolios and risk models under extreme or counterfactual
+    scenarios using statistical, simulation-based, or machine learning approaches,
+    including scenario generation, tail risk modelling, and distributional stress analysis.
+  enabled: true
+  categories: [ q-fin.RM, q-fin.CP, q-fin.PM, q-fin.ST, cs.LG, stat.ML ]
+  queries:
+    - 'all:("value at risk" OR "expected shortfall" OR "CVaR" OR "conditional value at risk" OR "tail risk")
+      AND ("forecasting" OR "prediction" OR "estimation" OR "backtesting")
+      AND ("portfolio" OR "asset return" OR "market risk" OR "systemic risk" OR "loss distribution"
+      OR "volatility")'
+    - 'all:("stress test" OR "stress testing" OR "adverse scenario")
+      AND ("portfolio" OR "financial institution" OR "market risk" OR "systemic risk"
+      OR "loss distribution" OR "bank capital" OR "regulatory capital" OR "credit spread")'
+    - 'all:("regime switching" OR "market regime" OR "extreme value theory" OR "tail event" OR "crisis period")
+      AND ("portfolio" OR "asset return" OR "market risk" OR "tail risk" OR "value at risk"
+      OR "expected shortfall" OR "loss distribution")'

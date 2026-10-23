@@ -1,0 +1,23 @@
+alpha_trading:
+  id: alpha_trading
+  name: "Alpha Trading Agents"
+  task_type: "forecasting"
+  description: >
+    Machine-learning-driven discovery of predictive signals (alpha factors), portfolio
+    construction, and trading strategies from financial data, including signal generation,
+    factor modelling, portfolio optimisation, and execution-aware strategy design.
+  enabled: true
+  categories: [ q-fin.TR, q-fin.PM, q-fin.ST, q-fin.CP, cs.LG, stat.ML ]
+  queries:
+    - 'all:("alpha factor" OR "alpha signal" OR "alpha mining" OR "formulaic alpha" OR "trading signal"
+      OR "trading strategy" OR "factor model" OR "factor investing" OR "stock selection"
+      OR "portfolio optimization" OR "portfolio construction" OR "asset allocation"
+      OR "algorithmic trading" OR "quantitative trading" OR "market making")
+      AND ("machine learning" OR "deep learning" OR "neural network" OR "Transformer" OR "reinforcement learning")'
+    - 'all:("algorithmic trading" OR "order execution" OR "optimal execution" OR "market impact"
+      OR "market making" OR "high-frequency trading")
+      AND ("machine learning" OR "deep learning" OR "neural network" OR "reinforcement learning")
+      AND ("backtest" OR "out-of-sample" OR "Sharpe" OR "turnover" OR "transaction cost" OR "drawdown")'
+    - 'all:("portfolio optimization" OR "asset allocation" OR "portfolio construction" OR "portfolio selection")
+      AND ("machine learning" OR "deep learning" OR "neural network" OR "reinforcement learning")
+      AND ("return" OR "risk" OR "Sharpe" OR "drawdown" OR "volatility")'

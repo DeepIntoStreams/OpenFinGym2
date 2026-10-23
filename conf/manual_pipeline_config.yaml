@@ -1,0 +1,15 @@
+mlflow:
+  tracking_uri: http://localhost:8080
+  experiment_name: manual-task-extraction
+defaults:
+  - scraping: default_scraper
+  - retrieval: default_retrieval
+  - judge: default_judge
+  - task_extractor: default_task_extractor
+  - task_critic: default_task_critic
+  - task_generator: default_task_generator
+  - task_exporter: default_task_exporter
+  - scopes: null
+enable_task_critic: false
+enable_judge: false
+arxiv_id: null

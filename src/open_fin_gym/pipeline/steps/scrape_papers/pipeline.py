@@ -29,6 +29,20 @@ class PaperScrapingPipeline:
             cfg.semantic_scholar,
         )
 
+    def scrape_paper(
+        self,
+        output_path: Path,
+        scope: Scope,
+        arxiv_id: str,
+    ) -> Paper:
+        output_path = output_path / "scraped_paper/"
+        output_path.mkdir(exist_ok=True)
+        paper = self.collector.retrieve_paper(arxiv_id, scope.id)
+        papers_dict = {paper.paper_id: paper}
+        self.insert_new_papers(papers_dict)
+        self.collector.dump_papers(output_path, scope, papers_dict)
+        return Paper(**paper.model_dump())
+
     def run(
         self,
         output_path: Path,

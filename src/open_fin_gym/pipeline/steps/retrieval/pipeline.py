@@ -2,8 +2,6 @@ import logging
 import time
 from pathlib import Path
 
-import pymupdf
-import pymupdf4llm
 import requests
 from langchain_text_splitters import MarkdownHeaderTextSplitter
 from sqlalchemy import Engine, select
@@ -21,6 +19,7 @@ from open_fin_gym.pipeline.db.utils import set_paper_status
 
 from .config import RetrievalConfig
 from .latexml import arxiv_html_to_markdown
+from .utils import DEFAULT_HEADERS_TO_SPLIT, chunk_markdown, pdf_to_markdown
 
 logger = logging.getLogger(__name__)
 
@@ -36,13 +35,8 @@ class PaperRetrieval:
         """
         self.db = db
         self.cfg = cfg
-        self.headers_to_split = [
-            ("#", "Header 1"),
-            ("##", "Header 2"),
-            ("###", "Header 3"),
-        ]
         self.splitter = MarkdownHeaderTextSplitter(
-            self.headers_to_split, strip_headers=False
+            DEFAULT_HEADERS_TO_SPLIT, strip_headers=False
         )
         self.headers = {"User-Agent": cfg.user_agent}
         self.next_request_at = 0.0
@@ -81,7 +75,8 @@ class PaperRetrieval:
             try:
                 markdown, source_format = self.retrieve_markdown(paper)
                 with Session(self.db) as session:
-                    session.add_all(self.chunk(paper, markdown, source_format))
+                    chunks = self.chunk(paper.paper_id, markdown, source_format)
+                    session.add_all(chunks)
                     session.commit()
             except Exception as e:
                 logger.error(
@@ -175,54 +170,17 @@ class PaperRetrieval:
         return response.content
 
     def chunk(
-        self, paper: Paper, markdown: str, source_format: SourceFormat
+        self, paper_id: str, markdown: str, source_format: SourceFormat
     ) -> list[Chunk]:
         """
         Split paper markdown into chunks on its section headers
 
         Args:
-            paper: Paper record
+            paper_id: Paper id string
             markdown: Paper markdown
             source_format: Format the markdown was derived from
 
         Returns:
             List of chunk records
         """
-        sections = [x for x in self.splitter.split_text(markdown) if x.metadata]
-        return [
-            Chunk(
-                paper_id=paper.paper_id,
-                chunk_index=i,
-                header=get_header(x.metadata),
-                text=x.page_content,
-                source_format=source_format,
-            )
-            for i, x in enumerate(sections)
-        ]
-
-
-def pdf_to_markdown(source: bytes) -> str:
-    """
-    Convert a PDF into markdown
-
-    Args:
-        source: Raw PDF bytes
-
-    Returns:
-        Markdown document with ATX headers
-    """
-    with pymupdf.open(stream=source, filetype="pdf") as document:
-        return pymupdf4llm.to_markdown(document, header=False, footer=False)
-
-
-def get_header(sections: dict[str, str]) -> str:
-    """
-    Get chunk section header tree string from metadata
-
-    Args:
-        sections: Dictionary of section IDs and their titles
-
-    Returns:
-        Joined section header tree
-    """
-    return " -- ".join([x.replace("*", "").lower().strip() for x in sections.values()])
+        return chunk_markdown(paper_id, markdown, source_format, splitter=self.splitter)

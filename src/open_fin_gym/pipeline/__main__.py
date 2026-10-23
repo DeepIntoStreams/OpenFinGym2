@@ -1,12 +1,8 @@
 import logging
-from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
 
-import docker
 import hydra
-import mlflow
-from docker.errors import APIError
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
 
@@ -19,6 +15,7 @@ from .steps.task_critic.pipeline import TaskCritic
 from .steps.task_export.pipeline import TaskExporter
 from .steps.task_extraction.pipeline import TaskExtractor
 from .steps.task_generator.pipeline import TaskGenerator
+from .utils import check_docker_available, init_context
 
 logger = logging.getLogger(__name__)
 
@@ -33,35 +30,17 @@ def run_pipeline(cfg: PipelineConfig) -> None:
     Args:
         cfg: Configuration
     """
-
-    use_mlflow = "mlflow" in cfg
-
-    if use_mlflow:
-        logger.info("Starting MLFLow")
-        mlflow.set_tracking_uri(cfg.mlflow.tracking_uri)
-        mlflow.langchain.autolog()
-        mlflow.set_experiment(cfg.mlflow.experiment_name)
+    load_dotenv()
 
     # Check docker server is available
-    client = docker.from_env()
-    try:
-        client.ping()
-        logger.info("Docker server available")
-    except APIError as e:
-        logger.error(f"Docker server connection required to run pipeline: {e}")
-    finally:
-        client.close()
-
-    load_dotenv()
+    check_docker_available(logger)
 
     db_engine = create_engine(cfg.db_engine)
     Base.metadata.create_all(db_engine)
 
     output_dir = Path(hydra.core.hydra_config.HydraConfig.get().runtime.output_dir)
-
-    scopes = [Scope(**scope) for scope in cfg.scopes if scope.enabled]
-
-    context = mlflow.start_run() if use_mlflow else nullcontext()
+    scopes = [Scope(**scope) for scope in cfg.scopes.values() if scope.enabled]
+    context = init_context(cfg, logger)
 
     with context:
         logger.info("Starting pipeline")
