@@ -6,7 +6,7 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from open_fin_gym.pipeline.config import Scope
-from open_fin_gym.pipeline.db.tables import Task, TaskStatus
+from open_fin_gym.pipeline.db.tables import Task, TaskCandidate, TaskStatus
 from open_fin_gym.pipeline.db.utils import set_task_status
 
 from .config import TaskExportConfig
@@ -55,7 +55,13 @@ class TaskExporter:
     def extract_scope(self, scope: Scope, output_path: Path) -> None:
 
         with Session(self.db) as session:
-            stmt = select(Task).where(Task.status == TaskStatus.NEW)
+            stmt = (
+                select(Task)
+                .join(TaskCandidate, Task.task_candidate_id == TaskCandidate.task_id)
+                .where(
+                    Task.status == TaskStatus.NEW, TaskCandidate.scope_id == scope.id
+                )
+            )
             tasks: list[Task] = session.execute(stmt).scalars().all()
 
         logger.info(f"Exporting {len(tasks)} tasks for scope {scope.name}")
