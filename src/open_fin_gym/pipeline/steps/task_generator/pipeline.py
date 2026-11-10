@@ -91,7 +91,7 @@ class TaskGenerator:
 
         def check_training_data_script(
             download_script: str,
-            requirements: list[str],
+            requirements: str,
         ) -> tuple[bool, str]:
             """
             Run training data download script and check it generates
@@ -99,7 +99,7 @@ class TaskGenerator:
 
             Args:
                 download_script: Python train/test data download script
-                requirements: List of Python requirements used by the script
+                requirements: Python requirements file used by the script
 
             Returns:
             Tuple containing success flag and run logs
@@ -114,7 +114,8 @@ class TaskGenerator:
         def check_test_data_script(
             download_script: str,
             verification_script: str,
-            requirements: list[str],
+            data_requirements: str,
+            test_requirements: str,
         ) -> tuple[bool, str]:
             """
             Run testing data download script and check it generates
@@ -123,7 +124,8 @@ class TaskGenerator:
             Args:
                 download_script: Python test data download script
                 verification_script: Python verifier script
-                requirements: List of Python requirements used by the script
+                data_requirements: Python requirements file used by the data loading script
+                test_requirements: Python requirements file used by the verifier script
 
             Returns:
             Tuple containing success flag and run logs
@@ -133,7 +135,8 @@ class TaskGenerator:
                 self.test_sh_template,
                 download_script,
                 verification_script,
-                requirements,
+                data_requirements,
+                test_requirements,
                 expected_test_files,
             )
 
@@ -205,7 +208,9 @@ class TaskGenerator:
                     dataset_response = await dataset_agent.ainvoke(
                         {"messages": [{"role": "user", "content": dataset_prompt}]}
                     )
-                    dataset_scripts = dataset_response["structured_response"]
+                    dataset_scripts: DatasetRetrieval = dataset_response[
+                        "structured_response"
+                    ]
 
                     assessment_script: Assessment = self.llm.with_structured_output(
                         Assessment
@@ -214,11 +219,9 @@ class TaskGenerator:
                     short_description = self.llm.invoke(description_prompt).content
                     difficulty_explanation = self.llm.invoke(difficulty_prompt).content
 
-                    requirements = list(
-                        set(dataset_scripts.requirements).union(
-                            set(assessment_script.requirements)
-                        )
-                    )
+                    data_requirements = dataset_scripts.requirements_file
+                    test_requirements = assessment_script.requirements_file
+
                     instructions = self.instructions_template.render(
                         task_description=task_spec.task_instructions,
                         training_inputs=task_spec.training_inputs,
@@ -264,8 +267,11 @@ class TaskGenerator:
                             f"PyLint detected the following errors in the verifier script \n\n{pylint_messages}"
                         )
 
-                    with open(task_path / "requirements.txt", "w") as f:
-                        f.write("\n".join(requirements))
+                    with open(task_path / "data_requirements.txt", "w") as f:
+                        f.write(data_requirements)
+
+                    with open(task_path / "test_requirements.txt", "w") as f:
+                        f.write(test_requirements)
 
                     with open(task_path / "instruction.md", "w") as f:
                         f.write(instructions)
@@ -275,7 +281,7 @@ class TaskGenerator:
                         test_train_download_script(
                             self.train_docker_template,
                             dataset_scripts.training_script,
-                            requirements,
+                            data_requirements,
                             expected_train_files,
                         )
                     )
@@ -289,7 +295,8 @@ class TaskGenerator:
                         self.test_sh_template,
                         dataset_scripts.testing_script,
                         assessment_script.assessment_script,
-                        requirements,
+                        data_requirements,
+                        test_requirements,
                         expected_test_files,
                     )
                     if not test_build_success:
@@ -304,7 +311,8 @@ class TaskGenerator:
                         train_script=dataset_scripts.training_script,
                         test_script=dataset_scripts.testing_script,
                         assessment_script=assessment_script.assessment_script,
-                        requirements=requirements,
+                        data_requirements=data_requirements,
+                        test_requirements=test_requirements,
                         instructions=instructions,
                         short_description=short_description,
                         difficulty_explanation=difficulty_explanation,

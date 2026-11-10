@@ -11,12 +11,12 @@ from open_fin_gym.pipeline.task_types import TaskTypeParams
 class DatasetRetrieval(BaseModel):
     training_script: str
     testing_script: str
-    requirements: list[str]
+    requirements_file: str
 
 
 class Assessment(BaseModel):
     assessment_script: str
-    requirements: list[str]
+    requirements_file: str
 
 
 def join_specs(specs: list[Dataset] | list[AssessmentMetric]) -> str:
@@ -38,12 +38,14 @@ assessment.
 1. training_script: A script that retrieves and saves the training_inputs, training_targets, and test_inputs datasets
 2. testing_script: A script that retrieves and saves the test_targets dataset(s)
 
-You should also produce a list of the Python requirements required by the scripts
+You should also produce a Python requirements file, which will be written to a `requirements.txt`
+and installed into the environment from which the scripts are run.
 
 Notes:
 
-- You can use the provided tools to confirm your code is correct, and to interact with
-  Github and data providers.
+- You should use the provided tools to confirm your code has no errors (using Pylint) and that your
+  scripts run as expected and produces the expected files.
+- You can also use the provided tools to view github resources, and retrieve information from data providers.
 - The datasets should be written to the files assigned in the specification
 - The files should be written to the same folder as the script
 - If any random sampling is used, the process should be seeded
@@ -85,7 +87,8 @@ results should be written to `/logs/verifier/reward.json`.
 
 {row_correspondence}
 
-You should also produce a list of Python requirements required by the assessment script.
+You should also produce a Python requirements file, which will be written to a `requirements.txt`
+and installed into the environment from which the scripts are run.
 
 Specification:
 

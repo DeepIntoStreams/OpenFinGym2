@@ -74,5 +74,6 @@ def test_tools_code_check_tools_train_data(
         ["foo.txt"], ["bar.txt"]
     )
 
-    result = check_training_data_script(script, [])
+    result = check_training_data_script(script, "numpy")
+
     assert result[0] == expected

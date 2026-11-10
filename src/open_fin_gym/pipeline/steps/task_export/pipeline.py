@@ -84,10 +84,7 @@ class TaskExporter:
 
                 docker_compose = self.docker_compose_template.render()
 
-                train_docker = self.train_docker_template.render(
-                    requirements=task.requirements,
-                    test=False,
-                )
+                train_docker = self.train_docker_template.render(test=False)
 
                 with open(env_dir / "Dockerfile", "w") as f:
                     f.write(train_docker)
@@ -98,12 +95,13 @@ class TaskExporter:
                 with open(env_dir / "data.py", "w") as f:
                     f.write(task.train_script)
 
+                with open(env_dir / "data_requirements.txt", "w") as f:
+                    f.write(task.data_requirements)
+
                 test_dir = task_dir / "tests"
                 test_dir.mkdir()
 
-                test_docker = self.test_docker_template.render(
-                    requirements=task.requirements, test=False
-                )
+                test_docker = self.test_docker_template.render(test=False)
 
                 with open(test_dir / "Dockerfile", "w") as f:
                     f.write(test_docker)
@@ -114,12 +112,16 @@ class TaskExporter:
                 with open(test_dir / "data.py", "w") as f:
                     f.write(task.test_script)
 
+                with open(test_dir / "data_requirements.txt", "w") as f:
+                    f.write(task.data_requirements)
+
+                with open(test_dir / "test_requirements.txt", "w") as f:
+                    f.write(task.test_requirements)
+
                 with open(test_dir / "verifier.py", "w") as f:
                     f.write(task.assessment_script)
 
-                test_script = self.test_script_template.render(
-                    requirements=task.requirements
-                )
+                test_script = self.test_script_template.render()
 
                 with open(test_dir / "test.sh", "w") as f:
                     f.write(test_script)
