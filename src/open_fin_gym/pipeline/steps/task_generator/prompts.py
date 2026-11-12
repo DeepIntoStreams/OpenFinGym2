@@ -1,4 +1,9 @@
-from pydantic import BaseModel
+from pathlib import Path
+from tempfile import NamedTemporaryFile
+from typing import Self
+
+from jinja2 import Template
+from pydantic import BaseModel, model_validator
 
 from open_fin_gym.pipeline.steps.task_extraction.prompts import (
     AssessmentMetric,
@@ -7,16 +12,108 @@ from open_fin_gym.pipeline.steps.task_extraction.prompts import (
 from open_fin_gym.pipeline.steps.task_extraction.utils import TaskSpecification
 from open_fin_gym.pipeline.task_types import TaskTypeParams
 
+from . import code_checks
 
-class DatasetRetrieval(BaseModel):
-    training_script: str
-    testing_script: str
-    requirements: list[str]
+
+class CodeFormattingError(Exception):
+    pass
+
+
+class CodeTestError(Exception):
+    pass
+
+
+def get_dataset_script_model(
+    expected_train_files: list[str],
+    expected_test_files: list[str],
+    train_docker_template: Template,
+    test_docker_template: Template,
+    test_sh_template: Template,
+) -> BaseModel:
+
+    class DatasetRetrievalScripts(BaseModel):
+        training_script: str
+        testing_script: str
+        requirements_file: str
+
+        @model_validator(mode="after")
+        def get_code_check_tools(self) -> Self:
+
+            try:
+                with NamedTemporaryFile(suffix=".py") as f:
+                    with open(f.name, "w") as wf:
+                        wf.write(self.training_script)
+                    result = code_checks.run_pylint(Path(f.name))
+            except Exception as e:
+                raise CodeFormattingError(
+                    f"Pylint checks on training script failed with: {e}"
+                )
+            else:
+                if not result[0]:
+                    raise CodeFormattingError(
+                        f"Pylint checks on training script failed with: {result[1]}"
+                    )
+
+            try:
+                with NamedTemporaryFile(suffix=".py") as f:
+                    with open(f.name, "w") as wf:
+                        wf.write(self.testing_script)
+                    result = code_checks.run_pylint(Path(f.name))
+            except Exception as e:
+                raise CodeFormattingError(
+                    f"Pylint checks on testing script failed with: {e}"
+                )
+            else:
+                if not result[0]:
+                    raise CodeFormattingError(
+                        f"Pylint checks on testing script failed with: {result[1]}"
+                    )
+
+            try:
+                result = code_checks.test_train_download_script(
+                    train_docker_template,
+                    self.training_script,
+                    self.requirements_file,
+                    expected_train_files,
+                )
+            except Exception as e:
+                raise CodeTestError(
+                    f"Testing of train data download script failed with: {e}"
+                )
+            else:
+                if not result[0]:
+                    raise CodeTestError(
+                        f"Testing of train data download script failed with: {result[1]}"
+                    )
+
+            try:
+                result = code_checks.test_test_download_script(
+                    test_docker_template,
+                    test_sh_template,
+                    self.testing_script,
+                    "",
+                    self.requirements_file,
+                    "",
+                    expected_test_files,
+                )
+            except Exception as e:
+                raise CodeTestError(
+                    f"Testing of test data download script failed with: {e}"
+                )
+            else:
+                if not result[0]:
+                    raise CodeTestError(
+                        f"Testing of test data download script failed with: {result[1]}"
+                    )
+
+            return self
+
+    return DatasetRetrievalScripts
 
 
 class Assessment(BaseModel):
     assessment_script: str
-    requirements: list[str]
+    requirements_file: str
 
 
 def join_specs(specs: list[Dataset] | list[AssessmentMetric]) -> str:
@@ -38,12 +135,13 @@ assessment.
 1. training_script: A script that retrieves and saves the training_inputs, training_targets, and test_inputs datasets
 2. testing_script: A script that retrieves and saves the test_targets dataset(s)
 
-You should also produce a list of the Python requirements required by the scripts
+You should also produce a Python requirements file, which will be written to a `requirements.txt`
+and installed into the environment from which the scripts are run.
 
 Notes:
 
-- You can use the provided tools to confirm your code is correct, and to interact with
-  Github and data providers.
+- You should use the 'DatasetRetrievalScripts' tool to submit your solution.
+- You can also use the provided tools to view github resources, and retrieve information from data providers.
 - The datasets should be written to the files assigned in the specification
 - The files should be written to the same folder as the script
 - If any random sampling is used, the process should be seeded
@@ -85,7 +183,8 @@ results should be written to `/logs/verifier/reward.json`.
 
 {row_correspondence}
 
-You should also produce a list of Python requirements required by the assessment script.
+You should also produce a Python requirements file, which will be written to a `requirements.txt`
+and installed into the environment from which the scripts are run.
 
 Specification:
 

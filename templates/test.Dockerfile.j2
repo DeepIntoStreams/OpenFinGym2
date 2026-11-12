@@ -8,6 +8,10 @@ COPY test.sh test.sh
 WORKDIR /app
 COPY data.py data.py
 COPY verifier.py verifier.py
+COPY data_requirements.txt data_requirements.txt
+COPY test_requirements.txt test_requirements.txt
+RUN uv venv --system
+RUN uv pip install -r data_requirements.txt
 
 {% if test %}
 
@@ -20,7 +24,7 @@ ENV ALPACA_SECRET_KEY=$ALPACA_SECRET_KEY
 ARG KAGGLE_API_TOKEN
 ENV KAGGLE_API_TOKEN=$KAGGLE_API_TOKEN
 
-RUN uv run {{ requirements | map("strformat", "--with %s") | join(" ") }} data.py
+RUN uv run data.py
 
 {% else %}
 
@@ -28,6 +32,6 @@ RUN uv run {{ requirements | map("strformat", "--with %s") | join(" ") }} data.p
 RUN --mount=type=secret,id=alpaca_api_key,env=ALPACA_API_KEY \
     --mount=type=secret,id=alpaca_secret_key,env=ALPACA_SECRET_KEY \
     --mount=type=secret,id=kaggle_api_token,env=KAGGLE_API_TOKEN \
-    uv run {{ requirements | map("strformat", "--with %s") | join(" ") }} data.py
+    uv run data.py
 
 {% endif %}

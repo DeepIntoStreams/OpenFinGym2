@@ -1,15 +1,12 @@
 import asyncio
 import logging
 from pathlib import Path
-from tempfile import NamedTemporaryFile
-from typing import Callable
 
 from hydra.utils import instantiate
 from jinja2 import Environment, FileSystemLoader
 from langchain.agents import create_agent
 from langchain.agents.structured_output import ToolStrategy
 from langchain.mcp import MCPAdapter
-from langchain.tools import tool
 from langchain_core.language_models import BaseChatModel
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
@@ -35,11 +32,11 @@ from .code_checks import (
 from .config import TaskGenerationConfig
 from .prompts import (
     Assessment,
-    DatasetRetrieval,
     build_dataset_download_prompt,
     build_description_summary_prompt,
     build_difficulty_explanation_prompt,
     build_metric_prompt,
+    get_dataset_script_model,
 )
 
 logger = logging.getLogger(__name__)
@@ -65,79 +62,6 @@ class TaskGenerator:
         self.test_docker_template = self.template_env.get_template("test.Dockerfile.j2")
         self.test_sh_template = self.template_env.get_template("test.sh.j2")
         assert isinstance(self.llm, BaseChatModel)
-
-    def get_code_check_tools(
-        self,
-        expected_train_files: list[str],
-        expected_test_files: list[str],
-    ) -> list[Callable]:
-
-        def run_pylint_checks(code: str) -> tuple[bool, str]:
-            """
-            Run PyLint checks on Python code to detect code errors
-
-            Args:
-                code: Python code string
-
-            Returns:
-            Tuple containing boolean flag indicating success/failure of
-            checks, and string containing any error messages
-            """
-
-            with NamedTemporaryFile(suffix=".py") as f:
-                with open(f.name, "w") as wf:
-                    wf.write(code)
-                return run_pylint(Path(f.name))
-
-        def check_training_data_script(
-            download_script: str,
-            requirements: list[str],
-        ) -> tuple[bool, str]:
-            """
-            Run training data download script and check it generates
-            the expected files
-
-            Args:
-                download_script: Python train/test data download script
-                requirements: List of Python requirements used by the script
-
-            Returns:
-            Tuple containing success flag and run logs
-            """
-            return test_train_download_script(
-                self.train_docker_template,
-                download_script,
-                requirements,
-                expected_train_files,
-            )
-
-        def check_test_data_script(
-            download_script: str,
-            verification_script: str,
-            requirements: list[str],
-        ) -> tuple[bool, str]:
-            """
-            Run testing data download script and check it generates
-            the expected files
-
-            Args:
-                download_script: Python test data download script
-                verification_script: Python verifier script
-                requirements: List of Python requirements used by the script
-
-            Returns:
-            Tuple containing success flag and run logs
-            """
-            return test_test_download_script(
-                self.test_docker_template,
-                self.test_sh_template,
-                download_script,
-                verification_script,
-                requirements,
-                expected_test_files,
-            )
-
-        return [run_pylint_checks, check_training_data_script, check_test_data_script]
 
     def run(self, output_path: Path, scopes: list[Scope]) -> None:
         """
@@ -179,17 +103,17 @@ class TaskGenerator:
                 )
                 expected_test_files = [x.filename for x in task_spec.test_targets]
 
-                code_tools = [
-                    tool(t)
-                    for t in self.get_code_check_tools(
-                        expected_train_files,
-                        expected_test_files,
-                    )
-                ]
+                model = get_dataset_script_model(
+                    expected_train_files,
+                    expected_test_files,
+                    self.train_docker_template,
+                    self.test_docker_template,
+                    self.test_sh_template,
+                )
                 dataset_agent = create_agent(
                     model=self.llm,
-                    response_format=ToolStrategy(DatasetRetrieval, handle_errors=False),
-                    tools=mcp_tools + code_tools,
+                    response_format=ToolStrategy(model, handle_errors=True),
+                    tools=mcp_tools,
                 )
 
                 dataset_prompt = build_dataset_download_prompt(task_spec)
@@ -203,7 +127,8 @@ class TaskGenerator:
 
                 try:
                     dataset_response = await dataset_agent.ainvoke(
-                        {"messages": [{"role": "user", "content": dataset_prompt}]}
+                        {"messages": [{"role": "user", "content": dataset_prompt}]},
+                        config={"recursion_limit": 50},
                     )
                     dataset_scripts = dataset_response["structured_response"]
 
@@ -214,11 +139,9 @@ class TaskGenerator:
                     short_description = self.llm.invoke(description_prompt).content
                     difficulty_explanation = self.llm.invoke(difficulty_prompt).content
 
-                    requirements = list(
-                        set(dataset_scripts.requirements).union(
-                            set(assessment_script.requirements)
-                        )
-                    )
+                    data_requirements = dataset_scripts.requirements_file
+                    test_requirements = assessment_script.requirements_file
+
                     instructions = self.instructions_template.render(
                         task_description=task_spec.task_instructions,
                         training_inputs=task_spec.training_inputs,
@@ -264,8 +187,11 @@ class TaskGenerator:
                             f"PyLint detected the following errors in the verifier script \n\n{pylint_messages}"
                         )
 
-                    with open(task_path / "requirements.txt", "w") as f:
-                        f.write("\n".join(requirements))
+                    with open(task_path / "data_requirements.txt", "w") as f:
+                        f.write(data_requirements)
+
+                    with open(task_path / "test_requirements.txt", "w") as f:
+                        f.write(test_requirements)
 
                     with open(task_path / "instruction.md", "w") as f:
                         f.write(instructions)
@@ -275,7 +201,7 @@ class TaskGenerator:
                         test_train_download_script(
                             self.train_docker_template,
                             dataset_scripts.training_script,
-                            requirements,
+                            data_requirements,
                             expected_train_files,
                         )
                     )
@@ -289,7 +215,8 @@ class TaskGenerator:
                         self.test_sh_template,
                         dataset_scripts.testing_script,
                         assessment_script.assessment_script,
-                        requirements,
+                        data_requirements,
+                        test_requirements,
                         expected_test_files,
                     )
                     if not test_build_success:
@@ -304,7 +231,8 @@ class TaskGenerator:
                         train_script=dataset_scripts.training_script,
                         test_script=dataset_scripts.testing_script,
                         assessment_script=assessment_script.assessment_script,
-                        requirements=requirements,
+                        data_requirements=data_requirements,
+                        test_requirements=test_requirements,
                         instructions=instructions,
                         short_description=short_description,
                         difficulty_explanation=difficulty_explanation,

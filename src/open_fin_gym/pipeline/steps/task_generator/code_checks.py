@@ -33,7 +33,7 @@ def run_pylint(script_path: Path) -> tuple[bool, str]:
     counts = results["statistics"]["messageTypeCount"]
 
     if counts["fatal"] == 0 and counts["error"] == 0:
-        return True, []
+        return True, "Pylint checks passed successfully"
 
     error_messages = [
         m["message"] for m in results["messages"] if m["type"] in {"fatal", "error"}
@@ -46,7 +46,7 @@ def run_pylint(script_path: Path) -> tuple[bool, str]:
 def test_train_download_script(
     docker_template: Template,
     download_script: str,
-    requirements: list[str],
+    requirements: str,
     expected_files: list[str],
 ) -> tuple[bool, str]:
     """
@@ -71,10 +71,13 @@ def test_train_download_script(
         with open(script_path, "w") as f:
             f.write(download_script)
 
-        docker_file = docker_template.render(requirements=requirements, test=True)
+        docker_file = docker_template.render(test=True)
 
         with open(folder_path / "Dockerfile", "w") as f:
             f.write(docker_file)
+
+        with open(folder_path / "data_requirements.txt", "w") as f:
+            f.write(requirements)
 
         try:
             image, logs = client.images.build(
@@ -91,6 +94,7 @@ def test_train_download_script(
 
     try:
         output = client.containers.run(image, command="ls -a", remove=True)
+        image.remove()
     except Exception as e:
         return False, str(e)
 
@@ -108,7 +112,8 @@ def test_test_download_script(
     test_template: Template,
     data_download_script: str,
     verification_script: str,
-    requirements: list[str],
+    data_requirements: str,
+    test_requirements: str,
     expected_files: list[str],
 ) -> tuple[bool, str]:
     """
@@ -139,15 +144,21 @@ def test_test_download_script(
         with open(verifier_script_path, "w") as f:
             f.write(verification_script)
 
-        docker_file = docker_template.render(requirements=requirements, test=True)
+        docker_file = docker_template.render(test=True)
 
         with open(folder_path / "Dockerfile", "w") as f:
             f.write(docker_file)
 
-        test_sh_file = test_template.render(requirements=requirements)
+        test_sh_file = test_template.render()
 
         with open(folder_path / "test.sh", "w") as f:
             f.write(test_sh_file)
+
+        with open(folder_path / "data_requirements.txt", "w") as f:
+            f.write(data_requirements)
+
+        with open(folder_path / "test_requirements.txt", "w") as f:
+            f.write(test_requirements)
 
         try:
             image, logs = client.images.build(
@@ -164,6 +175,7 @@ def test_test_download_script(
 
     try:
         output = client.containers.run(image, command="ls -a", remove=True)
+        image.remove()
     except Exception as e:
         return False, str(e)
 
