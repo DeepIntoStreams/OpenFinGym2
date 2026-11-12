@@ -8,7 +8,7 @@ COPY test.sh test.sh
 WORKDIR /app
 COPY data.py data.py
 COPY verifier.py verifier.py
-COPY date_requirements.txt data_requirements.txt
+COPY data_requirements.txt data_requirements.txt
 COPY test_requirements.txt test_requirements.txt
 RUN uv venv --system
 RUN uv pip install -r data_requirements.txt

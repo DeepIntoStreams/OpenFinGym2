@@ -33,7 +33,7 @@ def run_pylint(script_path: Path) -> tuple[bool, str]:
     counts = results["statistics"]["messageTypeCount"]
 
     if counts["fatal"] == 0 and counts["error"] == 0:
-        return True, []
+        return True, "Pylint checks passed successfully"
 
     error_messages = [
         m["message"] for m in results["messages"] if m["type"] in {"fatal", "error"}
@@ -94,6 +94,7 @@ def test_train_download_script(
 
     try:
         output = client.containers.run(image, command="ls -a", remove=True)
+        image.remove()
     except Exception as e:
         return False, str(e)
 
@@ -174,6 +175,7 @@ def test_test_download_script(
 
     try:
         output = client.containers.run(image, command="ls -a", remove=True)
+        image.remove()
     except Exception as e:
         return False, str(e)
 
